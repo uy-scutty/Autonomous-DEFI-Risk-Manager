@@ -1,0 +1,45 @@
+autonomous-defi-risk-manager/
+│
+├── contracts/ ← Foundry project
+│ ├── src/
+│ │ ├── VaultManager.sol green
+│ │ ├── RiskOracle.sol green
+│ │ ├── AgentRegistry.sol green
+│ │ └── ProtectionActions.sol green
+│ ├── test/
+│ │ ├── VaultManager.t.sol green
+│ │ └── ProtectionActions.t.sol
+│ ├── script/
+│ │ └── Deploy.s.sol green
+│ └── foundry.toml
+│
+├── agent/ ← Node.js autonomous agent
+│ ├── src/
+│ │ ├── scanner.js ← Position polling
+│ │ ├── riskEngine.js ← HF projection logic
+│ │ ├── decisionEngine.js ← Threshold evaluation
+│ │ ├── executor.js ← Transaction builder/sender
+│ │ ├── explainer.js ← Claude API NL generation
+│ │ ├── alerter.js ← Telegram bot
+│ │ └── db.js ← SQLite interface
+│ ├── config/
+│ │ └── thresholds.js
+│ ├── index.js ← Entry point + cron scheduler
+│ └── package.json
+│
+├── frontend/ ← Next.js 14 app
+│ ├── app/
+│ ├── components/
+│ ├── hooks/
+│ ├── lib/
+│ │ ├── contracts.ts ← ABI + address constants
+│ │ └── wagmiConfig.ts
+│ └── package.json
+│
+├── docs/
+│ ├── architecture.md
+│ └── demo-script.md ← 3-minute demo walkthrough
+│
+└── README.md
+
+line 235 & 236 in valult file fix the require that is there
