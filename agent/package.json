@@ -1,0 +1,27 @@
+{
+  "name": "autonomous-defi-risk-agent",
+  "version": "1.0.0",
+  "description": "Autonomous AI agent that monitors and protects DeFi positions on Arbitrum",
+  "main": "src/index.js",
+  "scripts": {
+    "start":   "node src/index.js",
+    "dev":     "nodemon src/index.js",
+    "test":    "jest --coverage",
+    "lint":    "eslint src/"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.24.0",
+    "better-sqlite3":    "^9.4.3",
+    "dotenv":            "^16.4.5",
+    "ethers":            "^6.11.1",
+    "node-cron":         "^3.0.3"
+  },
+  "devDependencies": {
+    "jest":    "^29.7.0",
+    "nodemon": "^3.1.0",
+    "eslint":  "^8.57.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

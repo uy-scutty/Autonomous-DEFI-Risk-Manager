@@ -3,7 +3,7 @@ pragma solidity ^0.8.20;
 
 /**
  * @title  VaultManager
- * @author Autonomous DeFi Risk Manager
+ * @author Oyedokun Oluwatominiyi John
  * @notice Core user-facing vault for the Autonomous DeFi Risk Manager.
  *         Users deposit ERC-20 collateral, borrow against it, and repay.
  *         A Chainlink-backed health factor is maintained on every state change.
@@ -37,12 +37,14 @@ pragma solidity ^0.8.20;
  * HF < 1.6  → agent's WARNING threshold (configurable)
  */
 
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/utils/Pausable.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
-import "@chainlink-brownie-contracts/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
+import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
+import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
+import {
+    AggregatorV3Interface
+} from "@chainlink-brownie-contracts/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
 
 contract VaultManager is ReentrancyGuard, Pausable, Ownable {
     using SafeERC20 for IERC20;
@@ -61,6 +63,8 @@ contract VaultManager is ReentrancyGuard, Pausable, Ownable {
     error ExceedsAgentRepayLimit(uint256 requested, uint256 limit);
     error RepayExceedsDebt(uint256 repayAmount, uint256 debtAmount);
     error InvalidThreshold();
+    error ThresholdTooHigh();
+    error ZeroAddress();
 
     // ─────────────────────────────────────────────────────────────────────────────
     // Structs
@@ -232,8 +236,8 @@ contract VaultManager is ReentrancyGuard, Pausable, Ownable {
         bool isCollateral,
         bool isBorrowable
     ) external onlyOwner {
-        require(liquidationThreshold <= BASIS_POINTS, "threshold > 100%");
-        require(priceFeed != address(0), "zero feed");
+        if (liquidationThreshold >= BASIS_POINTS) revert ThresholdTooHigh();
+        if (priceFeed == address(0)) revert ZeroAddress();
 
         AggregatorV3Interface feed = AggregatorV3Interface(priceFeed);
 

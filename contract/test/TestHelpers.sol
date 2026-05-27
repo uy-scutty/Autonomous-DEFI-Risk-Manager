@@ -108,19 +108,32 @@ contract MockChainlinkFeed {
     /// @dev Simulate a stale feed by backdating updatedAt
     function makeStale(uint256 ageSeconds) external {
         _updatedAt = block.timestamp - ageSeconds;
+        roundTimestamp[_roundId] = _updatedAt;
     }
 
     /// @dev Seed many historical rounds at once (for volatility tests)
-    function seedHistory(int256[] calldata prices, uint256 intervalSeconds) external {
+    /// @dev Seed many historical rounds at once (for volatility tests)
+    function seedHistory(int256[] memory prices, uint256 spacing) external {
+        require(prices.length > 0, "no prices");
+
+        // Reset round counter
+        _roundId = 0;
+
         for (uint256 i = 0; i < prices.length; i++) {
             _roundId++;
-            roundPrice[_roundId] = prices[i];
-            roundTimestamp[_roundId] = block.timestamp - (prices.length - i) * intervalSeconds;
-        }
-        _price = prices[prices.length - 1];
-        _updatedAt = block.timestamp;
-    }
 
+            roundPrice[_roundId] = prices[i];
+
+            // IMPORTANT:
+            // Historical rounds must go BACKWARDS in time,
+            // never into the future.
+            roundTimestamp[_roundId] = block.timestamp - ((prices.length - i) * spacing);
+        }
+
+        // Latest round becomes final seeded round
+        _price = prices[prices.length - 1];
+        _updatedAt = roundTimestamp[_roundId];
+    }
     // ── AggregatorV3Interface ─────────────────────────────────────────────
 
     function latestRoundData()

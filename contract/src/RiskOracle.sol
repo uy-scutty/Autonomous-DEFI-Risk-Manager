@@ -3,7 +3,7 @@ pragma solidity ^0.8.20;
 
 /**
  * @title  RiskOracle
- * @author Autonomous DeFi Risk Manager
+ * @author Oyedokun Oluwatominiyi John
  * @notice Chainlink price-feed wrapper that provides:
  *         1. Safe, staleness-checked price reads for any registered token.
  *         2. On-chain health-factor computation (mirrors VaultManager logic
@@ -35,6 +35,9 @@ contract RiskOracle is Ownable {
     error NegativePrice(address feed, int256 answer);
     error ZeroRoundsRequested();
     error RoundCountTooLarge(uint256 requested, uint256 max);
+    error ZeroFeed();
+    error ZeroToken();
+    error ZeroStaleness();
 
     // ─────────────────────────────────────────────────────────────────────────────
     // Structs
@@ -112,9 +115,9 @@ contract RiskOracle is Ownable {
         external
         onlyOwner
     {
-        require(feed != address(0), "zero feed");
-        require(token != address(0), "zero token");
-        require(maxStaleness > 0, "zero staleness");
+        if (feed == address(0)) revert ZeroFeed();
+        if (token == address(0)) revert ZeroToken();
+        if (maxStaleness == 0) revert ZeroStaleness();
 
         AggregatorV3Interface agg = AggregatorV3Interface(feed);
 
@@ -174,14 +177,12 @@ contract RiskOracle is Ownable {
     {
         FeedConfig storage cfg = _requireActiveFeed(token);
         (uint80 rId, int256 answer,, uint256 ts,) = cfg.feed.latestRoundData();
-
-        if (block.timestamp - ts > cfg.maxStaleness) {
-            revert StaleOrInvalidPrice(address(cfg.feed), ts, cfg.maxStaleness);
+        if (updatedAt > block.timestamp || block.timestamp - updatedAt > cfg.maxStaleness) {
+            revert StaleOrInvalidPrice(address(cfg.feed), updatedAt, cfg.maxStaleness);
         }
         if (answer <= 0) {
             revert NegativePrice(address(cfg.feed), answer);
         }
-
         price = _normalise(uint256(answer), cfg.feedDecimals);
         roundId = rId;
         updatedAt = ts;
@@ -215,7 +216,9 @@ contract RiskOracle is Ownable {
             try cfg.feed.latestRoundData() returns (
                 uint80, int256 answer, uint256, uint256 updatedAt, uint80
             ) {
-                bool stale = (block.timestamp - updatedAt > cfg.maxStaleness) || answer <= 0;
+                bool stale =
+                    (updatedAt > block.timestamp || block.timestamp - updatedAt > cfg.maxStaleness
+                        || answer <= 0);
 
                 snapshots[i] = PriceSnapshot({
                     token: token,
@@ -271,6 +274,8 @@ contract RiskOracle is Ownable {
         uint256 collected = 1;
 
         for (uint256 i = 1; i < numRounds; i++) {
+            if (latestRoundId <= i) break;
+
             uint80 targetRound = latestRoundId - uint80(i);
             if (targetRound == 0) break;
 
@@ -414,6 +419,8 @@ contract RiskOracle is Ownable {
         FeedConfig storage cfg = feedConfigs[token];
         if (!cfg.active) return false;
         (,,, uint256 updatedAt,) = cfg.feed.latestRoundData();
+        if (updatedAt > block.timestamp) return false;
+
         return block.timestamp - updatedAt <= cfg.maxStaleness;
     }
 
@@ -424,12 +431,10 @@ contract RiskOracle is Ownable {
     function _getPrice(address token) internal view returns (uint256) {
         FeedConfig storage cfg = _requireActiveFeed(token);
         (, int256 answer,, uint256 updatedAt,) = cfg.feed.latestRoundData();
-
-        if (block.timestamp - updatedAt > cfg.maxStaleness) {
-            revert StaleOrInvalidPrice(address(cfg.feed), updatedAt, cfg.maxStaleness);
-        }
-        if (answer <= 0) {
-            revert NegativePrice(address(cfg.feed), answer);
+        if (updatedAt > block.timestamp || block.timestamp - updatedAt > cfg.maxStaleness) {
+            if (answer <= 0) {
+                revert NegativePrice(address(cfg.feed), answer);
+            }
         }
 
         return _normalise(uint256(answer), cfg.feedDecimals);
