@@ -34,225 +34,106 @@ pragma solidity ^0.8.20;
  *         2 = variable rate (what users almost always have)
  */
 
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Aave v3 interfaces (minimal — only what we use)
-// ─────────────────────────────────────────────────────────────────────────────
-
-interface IAavePool {
-    /**
-     * @notice Returns the user account data across all reserves.
-     * @return totalCollateralBase     Total collateral in USD, 8 decimals
-     * @return totalDebtBase           Total debt in USD, 8 decimals
-     * @return availableBorrowsBase    Available to borrow in USD, 8 decimals
-     * @return currentLiquidationThreshold  Weighted avg liq threshold, 4 dec (e.g. 8250 = 82.5%)
-     * @return ltv                     Weighted avg LTV, 4 decimals
-     * @return healthFactor            18 decimals. type(uint256).max = no debt
-     */
-    function getUserAccountData(address user)
-        external view
-        returns (
-            uint256 totalCollateralBase,
-            uint256 totalDebtBase,
-            uint256 availableBorrowsBase,
-            uint256 currentLiquidationThreshold,
-            uint256 ltv,
-            uint256 healthFactor
-        );
-
-    /**
-     * @notice Repays a borrowed asset on behalf of a user.
-     * @param asset             The borrowed asset address
-     * @param amount            Amount to repay (use type(uint256).max for full repay)
-     * @param interestRateMode  1 = stable, 2 = variable
-     * @param onBehalfOf        The user whose debt to repay
-     * @return                  The actual amount repaid
-     */
-    function repay(
-        address asset,
-        uint256 amount,
-        uint256 interestRateMode,
-        address onBehalfOf
-    ) external returns (uint256);
-
-    /**
-     * @notice Supplies an asset as collateral on behalf of a user.
-     * @param asset        The asset to supply
-     * @param amount       Amount to supply
-     * @param onBehalfOf   Who receives the aToken (the user)
-     * @param referralCode Use 0
-     */
-    function supply(
-        address asset,
-        uint256 amount,
-        address onBehalfOf,
-        uint16 referralCode
-    ) external;
-
-    /**
-     * @notice Withdraws an asset from the user's Aave collateral.
-     *         Can only be called by the user themselves OR an approved operator.
-     *         For deleverage: user must have approved this contract as an operator.
-     */
-    function withdraw(
-        address asset,
-        uint256 amount,
-        address to
-    ) external returns (uint256);
-}
-
-interface IAavePoolDataProvider {
-    /**
-     * @notice Returns token balances for a specific user and reserve.
-     * @return currentATokenBalance     aToken balance (= collateral amount)
-     * @return currentStableDebt
-     * @return currentVariableDebt      Variable rate debt (most common)
-     * @return principalStableDebt
-     * @return scaledVariableDebt
-     * @return stableBorrowRate
-     * @return liquidityRate
-     * @return stableRateLastUpdated
-     * @return usageAsCollateralEnabled
-     */
-    function getUserReserveData(address asset, address user)
-        external view
-        returns (
-            uint256 currentATokenBalance,
-            uint256 currentStableDebt,
-            uint256 currentVariableDebt,
-            uint256 principalStableDebt,
-            uint256 scaledVariableDebt,
-            uint256 stableBorrowRate,
-            uint256 liquidityRate,
-            uint40  stableRateLastUpdated,
-            bool    usageAsCollateralEnabled
-        );
-
-    /**
-     * @notice Returns all reserve token addresses.
-     */
-    function getAllReservesTokens()
-        external view
-        returns (
-            // (symbol, address)[]
-            TokenData[] memory
-        );
-
-    struct TokenData {
-        string  symbol;
-        address tokenAddress;
-    }
-}
-
-interface IAaveOracle {
-    /**
-     * @notice Returns the price of an asset in USD, 8 decimals.
-     */
-    function getAssetPrice(address asset) external view returns (uint256);
-
-    /**
-     * @notice Returns prices for multiple assets.
-     */
-    function getAssetsPrices(address[] calldata assets)
-        external view returns (uint256[] memory);
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Custom errors
-// ─────────────────────────────────────────────────────────────────────────────
-
-error OnlyProtectionActions(address caller);
-error ZeroAmount();
-error RepayFailed(address asset, uint256 requested, uint256 actual);
-error InsufficientKeeperBalance(address asset, uint256 required, uint256 available);
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Structs
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// @notice Complete Aave position snapshot for a user
-/// @dev    All USD values use 8 decimals (Aave standard).
-///         healthFactor uses 18 decimals (Aave standard).
-struct AavePosition {
-    address user;
-    uint256 totalCollateralUSD;         // 8-dec USD
-    uint256 totalDebtUSD;               // 8-dec USD
-    uint256 availableBorrowsUSD;        // 8-dec USD
-    uint256 currentLiquidationThreshold;// 4-dec, e.g. 8250 = 82.50%
-    uint256 ltv;                        // 4-dec
-    uint256 healthFactor;               // 18-dec. max uint = no debt
-    uint256 netWorthUSD;                // collateral - debt, 8-dec
-    bool    isAtRisk;                   // true if HF < 1.6 (default warning)
-}
-
-/// @notice Per-token balance breakdown for the frontend
-struct TokenPosition {
-    address token;
-    string  symbol;
-    uint256 collateralAmount;   // token units
-    uint256 debtAmount;         // token units (variable rate)
-    uint256 collateralUSD;      // 8-dec USD
-    uint256 debtUSD;            // 8-dec USD
-    bool    usedAsCollateral;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Events
-// ─────────────────────────────────────────────────────────────────────────────
-
-event RepayExecuted(
-    address indexed user,
-    address indexed asset,
-    uint256 requestedAmount,
-    uint256 actualAmount,
-    uint256 healthFactorBefore,
-    uint256 healthFactorAfter
-);
-
-event CollateralSupplied(
-    address indexed user,
-    address indexed asset,
-    uint256 amount,
-    uint256 healthFactorBefore,
-    uint256 healthFactorAfter
-);
-
-event AavePoolUpdated(address newPool);
-event DataProviderUpdated(address newProvider);
-event OracleUpdated(address newOracle);
-event ProtectionActionsUpdated(address newProtectionActions);
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Constants
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// @dev Aave v3 Pool on Arbitrum One
-address constant AAVE_POOL_ARBITRUM          = 0x794a61358D6845594F94dc1DB02A252b5b4814aD;
-/// @dev Aave v3 PoolDataProvider on Arbitrum One
-address constant AAVE_DATA_PROVIDER_ARBITRUM = 0x69FA688f1Dc47d4B5d8029D5a35FB7a548310654;
-/// @dev Aave v3 Oracle on Arbitrum One
-address constant AAVE_ORACLE_ARBITRUM        = 0xb56c2F0B653173f1EB93B11A756EEAe4e26e7E54;
-
-/// @dev Variable rate mode (what almost all users have)
-uint256 constant VARIABLE_RATE = 2;
-/// @dev Aave HF precision
-uint256 constant HF_PRECISION  = 1e18;
-/// @dev Default warning HF (used by isAtRisk flag)
-uint256 constant WARNING_HF    = 1.6e18;
+import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
+import { IAavePool } from "interfaces/IAavePool.sol";
+import { IAaveOracle } from "interfaces/IAaveOracle.sol";
+import { IAavePoolDataProvider } from "interfaces/IAavePoolDataProvider.sol";
 
 contract AaveAdapter is Ownable {
     using SafeERC20 for IERC20;
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // Custom errors
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    error OnlyProtectionActions(address caller);
+    error ZeroAmount();
+    error RepayFailed(address asset, uint256 requested, uint256 actual);
+    error InsufficientKeeperBalance(address asset, uint256 required, uint256 available);
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // Structs
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    /// @notice Complete Aave position snapshot for a user
+    /// @dev    All USD values use 8 decimals (Aave standard).
+    ///         healthFactor uses 18 decimals (Aave standard).
+    struct AavePosition {
+        address user;
+        uint256 totalCollateralUSD; // 8-dec USD
+        uint256 totalDebtUSD; // 8-dec USD
+        uint256 availableBorrowsUSD; // 8-dec USD
+        uint256 currentLiquidationThreshold; // 4-dec, e.g. 8250 = 82.50%
+        uint256 ltv; // 4-dec
+        uint256 healthFactor; // 18-dec. max uint = no debt
+        uint256 netWorthUSD; // collateral - debt, 8-dec
+        bool isAtRisk; // true if HF < 1.6 (default warning)
+    }
+
+    /// @notice Per-token balance breakdown for the frontend
+    struct TokenPosition {
+        address token;
+        string symbol;
+        uint256 collateralAmount; // token units
+        uint256 debtAmount; // token units (variable rate)
+        uint256 collateralUSD; // 8-dec USD
+        uint256 debtUSD; // 8-dec USD
+        bool usedAsCollateral;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // Events
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    event RepayExecuted(
+        address indexed user,
+        address indexed asset,
+        uint256 requestedAmount,
+        uint256 actualAmount,
+        uint256 healthFactorBefore,
+        uint256 healthFactorAfter
+    );
+
+    event CollateralSupplied(
+        address indexed user,
+        address indexed asset,
+        uint256 amount,
+        uint256 healthFactorBefore,
+        uint256 healthFactorAfter
+    );
+
+    event AavePoolUpdated(address newPool);
+    event DataProviderUpdated(address newProvider);
+    event OracleUpdated(address newOracle);
+    event ProtectionActionsUpdated(address newProtectionActions);
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // Constants
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    /// @dev Aave v3 Pool on Arbitrum One
+    address constant AAVE_POOL_ARBITRUM = 0x794a61358D6845594F94dc1DB02A252b5b4814aD;
+    /// @dev Aave v3 PoolDataProvider on Arbitrum One
+    address constant AAVE_DATA_PROVIDER_ARBITRUM = 0x69FA688f1Dc47d4B5d8029D5a35FB7a548310654;
+    /// @dev Aave v3 Oracle on Arbitrum One
+    address constant AAVE_ORACLE_ARBITRUM = 0xb56c2f0B653173F1eB93B11a756EEae4e26e7E54;
+
+    /// @dev Variable rate mode (what almost all users have)
+    uint256 constant VARIABLE_RATE = 2;
+    /// @dev Aave HF precision
+    uint256 constant HF_PRECISION = 1e18;
+    /// @dev Default warning HF (used by isAtRisk flag)
+    uint256 constant WARNING_HF = 1.6e18;
 
     // ─────────────────────────────────────────────────────────────────────────
     // State
     // ─────────────────────────────────────────────────────────────────────────
 
-    IAavePool             public aavePool;
+    IAavePool public aavePool;
     IAavePoolDataProvider public dataProvider;
-    IAaveOracle           public aaveOracle;
+    IAaveOracle public aaveOracle;
 
     /// @notice Only ProtectionActions can call the write functions
     address public protectionActions;
@@ -267,15 +148,12 @@ contract AaveAdapter is Ownable {
      * @param _oracle          Aave v3 Oracle address
      * @param _protectionActions  ProtectionActions contract (can call write fns)
      */
-    constructor(
-        address _pool,
-        address _dataProvider,
-        address _oracle,
-        address _protectionActions
-    ) Ownable(msg.sender) {
-        aavePool          = IAavePool(_pool);
-        dataProvider      = IAavePoolDataProvider(_dataProvider);
-        aaveOracle        = IAaveOracle(_oracle);
+    constructor(address _pool, address _dataProvider, address _oracle, address _protectionActions)
+        Ownable(msg.sender)
+    {
+        aavePool = IAavePool(_pool);
+        dataProvider = IAavePoolDataProvider(_dataProvider);
+        aaveOracle = IAaveOracle(_oracle);
         protectionActions = _protectionActions;
     }
 
@@ -284,8 +162,9 @@ contract AaveAdapter is Ownable {
     // ─────────────────────────────────────────────────────────────────────────
 
     modifier onlyProtectionActions() {
-        if (msg.sender != protectionActions)
+        if (msg.sender != protectionActions) {
             revert OnlyProtectionActions(msg.sender);
+        }
         _;
     }
 
@@ -324,10 +203,7 @@ contract AaveAdapter is Ownable {
      * @param user  Wallet address to check
      * @return pos  AavePosition struct with all relevant data
      */
-    function getUserPosition(address user)
-        external view
-        returns (AavePosition memory pos)
-    {
+    function getUserPosition(address user) external view returns (AavePosition memory pos) {
         (
             uint256 totalCollateralBase,
             uint256 totalDebtBase,
@@ -337,20 +213,19 @@ contract AaveAdapter is Ownable {
             uint256 healthFactor
         ) = aavePool.getUserAccountData(user);
 
-        uint256 netWorth = totalCollateralBase > totalDebtBase
-            ? totalCollateralBase - totalDebtBase
-            : 0;
+        uint256 netWorth =
+            totalCollateralBase > totalDebtBase ? totalCollateralBase - totalDebtBase : 0;
 
         pos = AavePosition({
-            user:                          user,
-            totalCollateralUSD:            totalCollateralBase,
-            totalDebtUSD:                  totalDebtBase,
-            availableBorrowsUSD:           availableBorrowsBase,
-            currentLiquidationThreshold:   currentLiquidationThreshold,
-            ltv:                           ltv,
-            healthFactor:                  healthFactor,
-            netWorthUSD:                   netWorth,
-            isAtRisk:                      healthFactor < WARNING_HF && totalDebtBase > 0
+            user: user,
+            totalCollateralUSD: totalCollateralBase,
+            totalDebtUSD: totalDebtBase,
+            availableBorrowsUSD: availableBorrowsBase,
+            currentLiquidationThreshold: currentLiquidationThreshold,
+            ltv: ltv,
+            healthFactor: healthFactor,
+            netWorthUSD: netWorth,
+            isAtRisk: healthFactor < WARNING_HF && totalDebtBase > 0
         });
     }
 
@@ -358,11 +233,8 @@ contract AaveAdapter is Ownable {
      * @notice Get the health factor for a user directly.
      *         Used by ProtectionActions for pre/post-action checks.
      */
-    function getHealthFactor(address user)
-        external view
-        returns (uint256 healthFactor)
-    {
-        (,,,,,healthFactor) = aavePool.getUserAccountData(user);
+    function getHealthFactor(address user) external view returns (uint256 healthFactor) {
+        (,,,,, healthFactor) = aavePool.getUserAccountData(user);
     }
 
     /**
@@ -370,11 +242,11 @@ contract AaveAdapter is Ownable {
      *         Used by ProtectionActions to calculate repay amounts.
      */
     function getUserDebt(address user, address asset)
-        external view
+        external
+        view
         returns (uint256 variableDebt, uint256 stableDebt)
     {
-        (, uint256 stable, uint256 variable,,,,,,) =
-            dataProvider.getUserReserveData(asset, user);
+        (, uint256 stable, uint256 variable,,,,,,) = dataProvider.getUserReserveData(asset, user);
         return (variable, stable);
     }
 
@@ -382,11 +254,11 @@ contract AaveAdapter is Ownable {
      * @notice Get the collateral (aToken) balance for a specific asset.
      */
     function getUserCollateral(address user, address asset)
-        external view
+        external
+        view
         returns (uint256 aTokenBalance, bool usedAsCollateral)
     {
-        (uint256 bal,,,,,,,, bool asCollateral) =
-            dataProvider.getUserReserveData(asset, user);
+        (uint256 bal,,,,,,,, bool asCollateral) = dataProvider.getUserReserveData(asset, user);
         return (bal, asCollateral);
     }
 
@@ -394,20 +266,14 @@ contract AaveAdapter is Ownable {
      * @notice Get the USD price of an asset from Aave's oracle.
      *         Returns 8-decimal USD price (same as Chainlink).
      */
-    function getAssetPrice(address asset)
-        external view
-        returns (uint256)
-    {
+    function getAssetPrice(address asset) external view returns (uint256) {
         return aaveOracle.getAssetPrice(asset);
     }
 
     /**
      * @notice Batch fetch prices for multiple assets.
      */
-    function getAssetPrices(address[] calldata assets)
-        external view
-        returns (uint256[] memory)
-    {
+    function getAssetPrices(address[] calldata assets) external view returns (uint256[] memory) {
         return aaveOracle.getAssetsPrices(assets);
     }
 
@@ -420,20 +286,19 @@ contract AaveAdapter is Ownable {
      * @return simHF       Projected health factor after repay (18 decimals)
      */
     function simulateHFAfterRepay(address user, uint256 repayUSD)
-        external view
+        external
+        view
         returns (uint256 simHF)
     {
         (
             uint256 totalCollateralBase,
-            uint256 totalDebtBase,
-            ,
-            uint256 currentLiquidationThreshold,
-            ,
+            uint256 totalDebtBase,,
+            uint256 currentLiquidationThreshold,,
         ) = aavePool.getUserAccountData(user);
 
         if (totalDebtBase <= repayUSD) return type(uint256).max; // no debt left
 
-        uint256 newDebt     = totalDebtBase - repayUSD;
+        uint256 newDebt = totalDebtBase - repayUSD;
         // Adjusted collateral = collateral * liquidationThreshold / 10000
         uint256 adjCollateral = (totalCollateralBase * currentLiquidationThreshold) / 10_000;
 
@@ -448,15 +313,14 @@ contract AaveAdapter is Ownable {
      * @return simHF         Projected health factor (18 decimals)
      */
     function simulateHFAfterSupply(address user, uint256 addCollateralUSD)
-        external view
+        external
+        view
         returns (uint256 simHF)
     {
         (
             uint256 totalCollateralBase,
-            uint256 totalDebtBase,
-            ,
-            uint256 currentLiquidationThreshold,
-            ,
+            uint256 totalDebtBase,,
+            uint256 currentLiquidationThreshold,,
         ) = aavePool.getUserAccountData(user);
 
         if (totalDebtBase == 0) return type(uint256).max;
@@ -476,17 +340,15 @@ contract AaveAdapter is Ownable {
      * @param priceChangeBP Price change in basis points (negative = drop)
      * @return simHF        Projected health factor (18 decimals)
      */
-    function simulateHFAfterPriceShock(
-        address user,
-        address asset,
-        int256  priceChangeBP
-    ) external view returns (uint256 simHF) {
+    function simulateHFAfterPriceShock(address user, address asset, int256 priceChangeBP)
+        external
+        view
+        returns (uint256 simHF)
+    {
         (
             uint256 totalCollateralBase,
-            uint256 totalDebtBase,
-            ,
-            uint256 currentLiquidationThreshold,
-            ,
+            uint256 totalDebtBase,,
+            uint256 currentLiquidationThreshold,,
         ) = aavePool.getUserAccountData(user);
 
         if (totalDebtBase == 0) return type(uint256).max;
@@ -499,15 +361,12 @@ contract AaveAdapter is Ownable {
         // Note: aToken balance has the same decimals as the underlying
         // We use 8-dec prices and need to normalise
         // Simplified: use proportional impact on total collateral
-        uint256 assetUSD     = (aTokenBal * currentPrice) / 1e18; // rough — exact in agent
-        uint256 otherUSD     = totalCollateralBase > assetUSD
-            ? totalCollateralBase - assetUSD
-            : 0;
+        uint256 assetUSD = (aTokenBal * currentPrice) / 1e18; // rough — exact in agent
+        uint256 otherUSD = totalCollateralBase > assetUSD ? totalCollateralBase - assetUSD : 0;
 
         // Apply price shock
-        int256 shockedAssetUSD = int256(assetUSD) +
-            (int256(assetUSD) * priceChangeBP) / 10_000;
-        uint256 newAssetUSD  = shockedAssetUSD > 0 ? uint256(shockedAssetUSD) : 0;
+        int256 shockedAssetUSD = int256(assetUSD) + (int256(assetUSD) * priceChangeBP) / 10_000;
+        uint256 newAssetUSD = shockedAssetUSD > 0 ? uint256(shockedAssetUSD) : 0;
         uint256 newCollateral = otherUSD + newAssetUSD;
 
         uint256 adjCollateral = (newCollateral * currentLiquidationThreshold) / 10_000;
@@ -528,11 +387,7 @@ contract AaveAdapter is Ownable {
      * @param amount  Amount to repay in token units
      * @return actualRepaid  How much was actually repaid (may differ if capped at full debt)
      */
-    function repayDebt(
-        address user,
-        address asset,
-        uint256 amount
-    )
+    function repayDebt(address user, address asset, uint256 amount)
         external
         onlyProtectionActions
         returns (uint256 actualRepaid)
@@ -561,11 +416,7 @@ contract AaveAdapter is Ownable {
      * @param asset   Collateral token (e.g. WETH)
      * @param amount  Amount to supply
      */
-    function supplyCollateral(
-        address user,
-        address asset,
-        uint256 amount
-    )
+    function supplyCollateral(address user, address asset, uint256 amount)
         external
         onlyProtectionActions
     {

@@ -1,16 +1,3 @@
-/**
- * abis.js — Contract ABIs (Aave Guardian Edition)
- * ──────────────────────────────────────────────────
- * CHANGES FROM v1:
- *   - Removed VaultManager ABI
- *   - Removed RiskOracle ABI
- *   - Added AaveAdapter ABI
- *   - Updated ProtectionActions ABI (new function signatures)
- *   - AgentRegistry ABI unchanged
- */
-
-"use strict";
-
 const AaveAdapter = [
   // Position reads
   "function getUserPosition(address user) external view returns (tuple(address user, uint256 totalCollateralUSD, uint256 totalDebtUSD, uint256 availableBorrowsUSD, uint256 currentLiquidationThreshold, uint256 ltv, uint256 healthFactor, uint256 netWorthUSD, bool isAtRisk))",
@@ -32,7 +19,6 @@ const AaveAdapter = [
 ];
 
 const AgentRegistry = [
-  // Unchanged from v1
   "function getConfig(address user) external view returns (tuple(uint256 warningThresholdHF, uint256 actionThresholdHF, bool autoRepayEnabled, bool autoDeleverageEnabled, bool alertOnlyMode, uint16 maxRepayBasisPoints, uint16 maxDeleverageBP, bool agentEnabled, uint256 lastConfigUpdate, uint256 totalActionsExecuted, uint256 totalValueProtectedUSD))",
   "function getAgentDecisionParams(address user) external view returns (bool agentEnabled, bool alertOnly, bool canRepay, bool canDeleverage, uint256 warningHF, uint256 actionHF, uint16 maxRepayBP, uint16 maxDelgBP)",
   "function isAuthorisedKeeper(address user, address keeper) external view returns (bool)",

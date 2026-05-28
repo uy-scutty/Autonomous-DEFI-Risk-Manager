@@ -2,46 +2,92 @@ autonomous-defi-risk-manager/
 │
 ├── contracts/ ← Foundry project
 │ ├── src/
-│ │ ├── VaultManager.sol green
-│ │ ├── RiskOracle.sol green
-│ │ ├── AgentRegistry.sol green
-│ │ └── ProtectionActions.sol green
+│ │ ├── AgentRegistry.sol ✅ KEEP — unchanged
+│ │ ├── AaveAdapter.sol ✅ NEW — replaces VaultManager + RiskOracle
+│ │ └── ProtectionActions.sol ✅ REPLACE with ProtectionActions_Aave.sol
+│ │
 │ ├── test/
-│ │ ├── VaultManager.t.sol green
-│ │ └── ProtectionActions.t.sol
+│ │ ├── TestHelpers.sol ✅ KEEP — mocks still valid
+│ │ ├── AgentRegistry.t.sol ✅ KEEP — contract unchanged
+│ │ ├── AaveAdapter.t.sol ✅ NEW — needs to be written
+│ │ └── ProtectionActions.t.sol ✅ REPLACE — rewrite for Aave version
+│ │
 │ ├── script/
-│ │ └── Deploy.s.sol green
-│ └── foundry.toml
+│ │ └── Deploy.s.sol ✅ REPLACE with Deploy_Aave.s.sol
+│ │
+│ ├── lib/ ✅ KEEP — same dependencies
+│ │ ├── forge-std/
+│ │ ├── openzeppelin-contracts/
+│ │ └── chainlink/
+│ │
+│ ├── foundry.toml ✅ KEEP — no changes needed
+│ └── remappings.txt ✅ KEEP — no changes needed
 │
-├── agent/ ← Node.js autonomous agent
+│
+├── agent/
 │ ├── src/
-│ │ ├── scanner.js ← Position polling
-│ │ ├── riskEngine.js ← HF projection logic
-│ │ ├── decisionEngine.js ← Threshold evaluation
-│ │ ├── executor.js ← Transaction builder/sender
-│ │ ├── explainer.js ← Claude API NL generation
-│ │ ├── alerter.js ← Telegram bot
-│ │ └── db.js ← SQLite interface
+│ │ ├── index.js ✅ KEEP — zero changes needed
+│ │ ├── scanner.js ✅ REPLACE with scanner_aave.js
+│ │ ├── riskEngine.js ✅ REPLACE with riskEngine_aave.js
+│ │ ├── decisionEngine.js ✅ KEEP — logic is protocol-agnostic
+│ │ ├── executor.js ✅ REPLACE with executor_aave.js
+│ │ ├── explainer.js ✅ KEEP — zero changes needed
+│ │ ├── alerter.js ✅ KEEP — zero changes needed
+│ │ ├── db.js ✅ KEEP — zero changes needed
+│ │ ├── logger.js ✅ KEEP — zero changes needed
+│ │ └── abis.js ✅ REPLACE with abis_aave.js
+│ │
 │ ├── config/
-│ │ └── thresholds.js
-│ ├── index.js ← Entry point + cron scheduler
-│ └── package.json
+│ │ └── thresholds.js ✅ KEEP — add AAVE_POOL_ADDRESS constant
+│ │
+│ ├── data/ ✅ KEEP — auto-created, holds agent.db
+│ │
+│ ├── package.json ✅ KEEP — same dependencies
+│ └── .env ✅ UPDATE — swap old addresses for new ones
 │
-├── frontend/ ← Next.js 14 app
+│
+├── frontend/ ← Next.js 14 (not built yet)
 │ ├── app/
+│ │ ├── page.tsx ← redirects to /dashboard
+│ │ ├── dashboard/
+│ │ │ └── page.tsx ← main positions view
+│ │ ├── simulate/
+│ │ │ └── page.tsx ← what-if price simulator
+│ │ ├── activity/
+│ │ │ └── page.tsx ← agent action history
+│ │ └── settings/
+│ │ └── page.tsx ← user thresholds + consent
+│ │
 │ ├── components/
+│ │ ├── RiskMeter.tsx ← animated HF gauge
+│ │ ├── PositionCard.tsx ← collateral/debt summary
+│ │ ├── AgentFeed.tsx ← live activity log
+│ │ ├── WhatIfSlider.tsx ← price shock simulator
+│ │ └── ThresholdEditor.tsx ← writes to AgentRegistry
+│ │
 │ ├── hooks/
+│ │ ├── useAavePosition.ts ← reads from AaveAdapter
+│ │ ├── useAgentConfig.ts ← reads/writes AgentRegistry
+│ │ └── useAgentActivity.ts ← polls /api/agent-log
+│ │
 │ ├── lib/
-│ │ ├── contracts.ts ← ABI + address constants
-│ │ └── wagmiConfig.ts
-│ └── package.json
+│ │ ├── contracts.ts ← ABI + deployed addresses
+│ │ └── wagmiConfig.ts ← wallet connection setup
+│ │
+│ ├── app/api/
+│ │ ├── agent-log/route.ts ← reads SQLite via agent db
+│ │ ├── positions/route.ts ← proxy to AaveAdapter
+│ │ └── simulate/route.ts ← calls simulateHFAfterPriceShock
+│ │
+│ ├── package.json
+│ └── .env.local
+│
 │
 ├── docs/
-│ ├── architecture.md
+│ ├── architecture.md ← system overview diagram
 │ └── demo-script.md ← 3-minute demo walkthrough
 │
 └── README.md
-
 line 235 & 236 in valult file fix the require that is there
 
 70,000 USDC
