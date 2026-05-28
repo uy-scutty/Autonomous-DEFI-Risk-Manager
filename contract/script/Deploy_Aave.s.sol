@@ -21,16 +21,15 @@ pragma solidity ^0.8.20;
  */
 
 import "forge-std/Script.sol";
-import "../src/AgentRegistry.sol";
-import "../src/AaveAdapter.sol";
-import "../src/ProtectionActions.sol";
+import { AgentRegistry } from "src/AgentRegistry.sol";
+import { ProtectionActions } from "src/ProtectionActions_Aave.sol";
+import { AaveAdapter } from "src/AaveAdapter.sol";
 
 contract Deploy is Script {
-
     // ── Aave v3 Arbitrum One addresses ────────────────────────────────────
-    address constant AAVE_POOL          = 0x794a61358D6845594F94dc1DB02A252b5b4814aD;
+    address constant AAVE_POOL = 0x794a61358D6845594F94dc1DB02A252b5b4814aD;
     address constant AAVE_DATA_PROVIDER = 0x69FA688f1Dc47d4B5d8029D5a35FB7a548310654;
-    address constant AAVE_ORACLE        = 0xb56c2F0B653173f1EB93B11A756EEAe4e26e7E54;
+    address constant AAVE_ORACLE = 0xb56c2f0B653173F1eB93B11a756EEae4e26e7E54;
 
     // ── Aave v3 Arbitrum Sepolia testnet addresses ────────────────────────
     // address constant AAVE_POOL          = 0xBfC91D59fdAA134A4ED45f7B584cAf96D7792Eff;
@@ -41,9 +40,9 @@ contract Deploy is Script {
     address constant UNISWAP_ROUTER = 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45;
 
     function run() external {
-        uint256 deployerKey  = vm.envUint("PRIVATE_KEY");
-        address agentKeeper  = vm.envAddress("AGENT_KEEPER_ADDRESS");
-        address deployer     = vm.addr(deployerKey);
+        uint256 deployerKey = vm.envUint("PRIVATE_KEY");
+        address agentKeeper = vm.envAddress("AGENT_KEEPER_ADDRESS");
+        address deployer = vm.addr(deployerKey);
 
         console.log("=== Autonomous DeFi Risk Manager (Aave Guardian) ===");
         console.log("Deployer:     ", deployer);
@@ -61,16 +60,13 @@ contract Deploy is Script {
             AAVE_POOL,
             AAVE_DATA_PROVIDER,
             AAVE_ORACLE,
-            address(0)   // placeholder — updated below
+            address(0) // placeholder — updated below
         );
         console.log("AaveAdapter:        ", address(adapter));
 
         // ── 3. ProtectionActions ─────────────────────────────────────────
-        ProtectionActions protection = new ProtectionActions(
-            address(adapter),
-            address(registry),
-            UNISWAP_ROUTER
-        );
+        ProtectionActions protection =
+            new ProtectionActions(address(adapter), address(registry), UNISWAP_ROUTER);
         console.log("ProtectionActions:  ", address(protection));
 
         // ── 4. Wire up: tell AaveAdapter who can call its write functions ─

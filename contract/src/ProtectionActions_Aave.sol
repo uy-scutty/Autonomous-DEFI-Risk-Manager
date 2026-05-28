@@ -3,7 +3,7 @@ pragma solidity ^0.8.20;
 
 /**
  * @title  ProtectionActions (Aave Guardian Edition)
- * @author Autonomous DeFi Risk Manager
+ * @author Oyedokun Oluwatominiyi John
  * @notice Executes protective actions on a user's EXISTING Aave v3 position.
  *
  *         Users never move their Aave positions. They just:
@@ -45,160 +45,117 @@ pragma solidity ^0.8.20;
  *           stops acting (consent is checked on every call).
  */
 
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/utils/Pausable.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
-import "./AaveAdapter.sol";
-
-// Minimal Uniswap v3 SwapRouter (for deleverage swap)
-interface ISwapRouter {
-    struct ExactInputSingleParams {
-        address tokenIn;
-        address tokenOut;
-        uint24  fee;
-        address recipient;
-        uint256 amountIn;
-        uint256 amountOutMinimum;
-        uint160 sqrtPriceLimitX96;
-    }
-    function exactInputSingle(ExactInputSingleParams calldata params)
-        external returns (uint256 amountOut);
-}
-
-// AgentRegistry interface
-interface IAgentRegistry {
-    function getAgentDecisionParams(address user)
-        external view
-        returns (
-            bool    agentEnabled,
-            bool    alertOnly,
-            bool    canRepay,
-            bool    canDeleverage,
-            uint256 warningHF,
-            uint256 actionHF,
-            uint16  maxRepayBP,
-            uint16  maxDelgBP
-        );
-
-    function isAuthorisedKeeper(address user, address keeper)
-        external view returns (bool);
-
-    function recordAction(
-        address user,
-        string calldata actionType,
-        uint256 valueUSD18
-    ) external;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Custom errors
-// ─────────────────────────────────────────────────────────────────────────────
-
-error NotAuthorisedKeeper(address caller, address user);
-error UserAgentDisabled(address user);
-error ActionNotPermitted(address user, string action);
-error HealthFactorAlreadySafe(address user, uint256 currentHF, uint256 actionThreshold);
-error RepayAmountExceedsLimit(uint256 requested, uint256 maxAllowed);
-error TopUpNotApproved(address user, address token, uint256 needed, uint256 allowance);
-error ZeroAmount();
-error SlippageTooHigh(uint256 amountOut, uint256 minExpected);
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Structs
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// @notice Parameters for a partial repay protection action
-struct RepayParams {
-    address user;          // Aave position owner
-    address debtAsset;     // Token they borrowed (e.g. USDC)
-    uint256 repayAmount;   // Amount to repay in debtAsset units
-}
-
-/// @notice Parameters for a collateral top-up action
-struct TopUpParams {
-    address user;              // Aave position owner
-    address collateralAsset;   // Token to supply (e.g. WETH)
-    uint256 amount;            // Amount to pull from user's reserve wallet
-}
-
-/// @notice Parameters for flash-loan deleverage (advanced)
-struct DeleverageParams {
-    address user;
-    address collateralAsset;   // Asset to withdraw from Aave
-    address debtAsset;         // Asset to repay
-    uint256 collateralAmount;  // How much collateral to sell
-    uint256 minDebtRepaid;     // Minimum debt repaid after swap (slippage floor)
-    uint24  poolFee;           // Uniswap v3 fee tier
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Events
-// ─────────────────────────────────────────────────────────────────────────────
-
-event ProtectionExecuted(
-    address indexed user,
-    address indexed keeper,
-    string  actionType,
-    address asset,
-    uint256 amount,
-    uint256 hfBefore,
-    uint256 hfAfter,
-    uint256 timestamp
-);
-
-event ProtectionFailed(
-    address indexed user,
-    string  actionType,
-    string  reason,
-    uint256 timestamp
-);
-
-event AdapterUpdated(address newAdapter);
-event RegistryUpdated(address newRegistry);
-event SwapRouterUpdated(address newRouter);
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Constants
-// ─────────────────────────────────────────────────────────────────────────────
-
-uint256 constant BASIS_POINTS  = 10_000;
-uint256 constant HF_PRECISION  = 1e18;
-
-/// @dev Uniswap v3 SwapRouter02 on Arbitrum One
-address constant UNISWAP_ROUTER = 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45;
+import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
+import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
+import { AaveAdapter } from "src/AaveAdapter.sol";
+import { IAgentRegistry } from "interfaces/IAgentRegistry.sol";
+import { ISwapRouter } from "interfaces/ISwapRouter.sol";
 
 contract ProtectionActions is ReentrancyGuard, Pausable, Ownable {
     using SafeERC20 for IERC20;
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // Custom errors
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    error NotAuthorisedKeeper(address caller, address user);
+    error UserAgentDisabled(address user);
+    error ActionNotPermitted(address user, string action);
+    error HealthFactorAlreadySafe(address user, uint256 currentHF, uint256 actionThreshold);
+    error RepayAmountExceedsLimit(uint256 requested, uint256 maxAllowed);
+    error TopUpNotApproved(address user, address token, uint256 needed, uint256 allowance);
+    error ZeroAmount();
+    error SlippageTooHigh(uint256 amountOut, uint256 minExpected);
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // Structs
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    /// @notice Parameters for a partial repay protection action
+    struct RepayParams {
+        address user; // Aave position owner
+        address debtAsset; // Token they borrowed (e.g. USDC)
+        uint256 repayAmount; // Amount to repay in debtAsset units
+    }
+
+    /// @notice Parameters for a collateral top-up action
+    struct TopUpParams {
+        address user; // Aave position owner
+        address collateralAsset; // Token to supply (e.g. WETH)
+        uint256 amount; // Amount to pull from user's reserve wallet
+    }
+
+    /// @notice Parameters for flash-loan deleverage (advanced)
+    struct DeleverageParams {
+        address user;
+        address collateralAsset; // Asset to withdraw from Aave
+        address debtAsset; // Asset to repay
+        uint256 collateralAmount; // How much collateral to sell
+        uint256 minDebtRepaid; // Minimum debt repaid after swap (slippage floor)
+        uint24 poolFee; // Uniswap v3 fee tier
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // Events
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    event ProtectionExecuted(
+        address indexed user,
+        address indexed keeper,
+        string actionType,
+        address asset,
+        uint256 amount,
+        uint256 hfBefore,
+        uint256 hfAfter,
+        uint256 timestamp
+    );
+
+    event ProtectionFailed(
+        address indexed user, string actionType, string reason, uint256 timestamp
+    );
+
+    event AdapterUpdated(address newAdapter);
+    event RegistryUpdated(address newRegistry);
+    event SwapRouterUpdated(address newRouter);
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // Constants
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    uint256 constant BASIS_POINTS = 10_000;
+    uint256 constant HF_PRECISION = 1e18;
+
+    /// @dev Uniswap v3 SwapRouter02 on Arbitrum One
+    address constant UNISWAP_ROUTER = 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45;
 
     // ─────────────────────────────────────────────────────────────────────────
     // State
     // ─────────────────────────────────────────────────────────────────────────
 
-    AaveAdapter    public aaveAdapter;
+    AaveAdapter public aaveAdapter;
     IAgentRegistry public agentRegistry;
-    ISwapRouter    public swapRouter;
+    ISwapRouter public swapRouter;
 
     // ─────────────────────────────────────────────────────────────────────────
     // Constructor
     // ─────────────────────────────────────────────────────────────────────────
 
-    constructor(
-        address _aaveAdapter,
-        address _agentRegistry,
-        address _swapRouter
-    ) Ownable(msg.sender) {
-        aaveAdapter    = AaveAdapter(_aaveAdapter);
-        agentRegistry  = IAgentRegistry(_agentRegistry);
-        swapRouter     = ISwapRouter(_swapRouter);
+    constructor(address _aaveAdapter, address _agentRegistry, address _swapRouter)
+        Ownable(msg.sender)
+    {
+        aaveAdapter = AaveAdapter(_aaveAdapter);
+        agentRegistry = IAgentRegistry(_agentRegistry);
+        swapRouter = ISwapRouter(_swapRouter); // would and may replace later with UNISWAP_ROUTER
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Admin
+    // Admin / Configuration Functions
     // ─────────────────────────────────────────────────────────────────────────
 
-    function setAaveAdapter(address _adapter)    external onlyOwner {
+    function setAaveAdapter(address _adapter) external onlyOwner {
         aaveAdapter = AaveAdapter(_adapter);
         emit AdapterUpdated(_adapter);
     }
@@ -208,13 +165,18 @@ contract ProtectionActions is ReentrancyGuard, Pausable, Ownable {
         emit RegistryUpdated(_registry);
     }
 
-    function setSwapRouter(address _router)      external onlyOwner {
+    function setSwapRouter(address _router) external onlyOwner {
         swapRouter = ISwapRouter(_router);
         emit SwapRouterUpdated(_router);
     }
 
-    function pause()   external onlyOwner { _pause(); }
-    function unpause() external onlyOwner { _unpause(); }
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    function unpause() external onlyOwner {
+        _unpause();
+    }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Action 1: Partial Repay
@@ -237,35 +199,30 @@ contract ProtectionActions is ReentrancyGuard, Pausable, Ownable {
      *
      * @param p  RepayParams struct
      */
-    function executePartialRepay(RepayParams calldata p)
-        external
-        nonReentrant
-        whenNotPaused
-    {
+    function executePartialRepay(RepayParams calldata p) external nonReentrant whenNotPaused {
         if (p.repayAmount == 0) revert ZeroAmount();
 
         // ── 1. Auth + consent ─────────────────────────────────────────────────
         _requireAuthorisedKeeper(p.user);
 
-        (
-            bool agentEnabled,, bool canRepay,,
-            , uint256 actionHF,
-            uint16 maxRepayBP,
-        ) = agentRegistry.getAgentDecisionParams(p.user);
+        (bool agentEnabled,, bool canRepay,,, uint256 actionHF, uint16 maxRepayBP,) =
+            agentRegistry.getAgentDecisionParams(p.user);
 
         if (!agentEnabled) revert UserAgentDisabled(p.user);
-        if (!canRepay)     revert ActionNotPermitted(p.user, "PARTIAL_REPAY");
+        if (!canRepay) revert ActionNotPermitted(p.user, "PARTIAL_REPAY");
 
         // ── 2. Check HF actually needs intervention ───────────────────────────
         uint256 hfBefore = aaveAdapter.getHealthFactor(p.user);
-        if (hfBefore >= actionHF)
+        if (hfBefore >= actionHF) {
             revert HealthFactorAlreadySafe(p.user, hfBefore, actionHF);
+        }
 
         // ── 3. Enforce max repay limit ────────────────────────────────────────
         (uint256 variableDebt,) = aaveAdapter.getUserDebt(p.user, p.debtAsset);
         uint256 maxAllowed = (variableDebt * maxRepayBP) / BASIS_POINTS;
-        if (p.repayAmount > maxAllowed)
+        if (p.repayAmount > maxAllowed) {
             revert RepayAmountExceedsLimit(p.repayAmount, maxAllowed);
+        }
 
         // ── 4. Pull funds from keeper wallet into this contract ───────────────
         IERC20(p.debtAsset).safeTransferFrom(msg.sender, address(this), p.repayAmount);
@@ -303,26 +260,22 @@ contract ProtectionActions is ReentrancyGuard, Pausable, Ownable {
      *
      * @param p  TopUpParams struct
      */
-    function executeCollateralTopUp(TopUpParams calldata p)
-        external
-        nonReentrant
-        whenNotPaused
-    {
+    function executeCollateralTopUp(TopUpParams calldata p) external nonReentrant whenNotPaused {
         if (p.amount == 0) revert ZeroAmount();
 
         // ── 1. Auth + consent ─────────────────────────────────────────────────
         _requireAuthorisedKeeper(p.user);
 
-        (bool agentEnabled,, bool canRepay,,,,, ) =
-            agentRegistry.getAgentDecisionParams(p.user);
+        (bool agentEnabled,, bool canRepay,,,,,) = agentRegistry.getAgentDecisionParams(p.user);
 
         if (!agentEnabled) revert UserAgentDisabled(p.user);
-        if (!canRepay)     revert ActionNotPermitted(p.user, "COLLATERAL_TOPUP");
+        if (!canRepay) revert ActionNotPermitted(p.user, "COLLATERAL_TOPUP");
 
         // ── 2. Verify user has granted allowance ─────────────────────────────
         uint256 allowance = IERC20(p.collateralAsset).allowance(p.user, address(this));
-        if (allowance < p.amount)
+        if (allowance < p.amount) {
             revert TopUpNotApproved(p.user, p.collateralAsset, p.amount, allowance);
+        }
 
         uint256 hfBefore = aaveAdapter.getHealthFactor(p.user);
 
@@ -368,22 +321,20 @@ contract ProtectionActions is ReentrancyGuard, Pausable, Ownable {
         // ── 1. Auth + consent ─────────────────────────────────────────────────
         _requireAuthorisedKeeper(p.user);
 
-        (
-            bool agentEnabled,,, bool canDeleverage,
-            , uint256 actionHF,,
-            uint16 maxDelgBP
-        ) = agentRegistry.getAgentDecisionParams(p.user);
+        (bool agentEnabled,,, bool canDeleverage,, uint256 actionHF,, uint16 maxDelgBP) =
+            agentRegistry.getAgentDecisionParams(p.user);
 
-        if (!agentEnabled)  revert UserAgentDisabled(p.user);
+        if (!agentEnabled) revert UserAgentDisabled(p.user);
         if (!canDeleverage) revert ActionNotPermitted(p.user, "DELEVERAGE");
 
         uint256 hfBefore = aaveAdapter.getHealthFactor(p.user);
-        if (hfBefore >= actionHF)
+        if (hfBefore >= actionHF) {
             revert HealthFactorAlreadySafe(p.user, hfBefore, actionHF);
+        }
 
         // ── 2. Verify deleverage size is within user's limit ─────────────────
         (uint256 aTokenBal,) = aaveAdapter.getUserCollateral(p.user, p.collateralAsset);
-        uint256 maxAllowed   = (aTokenBal * maxDelgBP) / BASIS_POINTS;
+        uint256 maxAllowed = (aTokenBal * maxDelgBP) / BASIS_POINTS;
         // Note: for MVP we check token balance; full version checks USD value
 
         // ── 3. User must have approved this contract on their aToken ─────────
@@ -398,29 +349,27 @@ contract ProtectionActions is ReentrancyGuard, Pausable, Ownable {
 
         // Redeem aTokens for underlying collateral via Aave withdraw
         // (aToken holder can call withdraw to get underlying back)
-        uint256 withdrawn = aaveAdapter.aavePool().withdraw(
-            p.collateralAsset,
-            p.collateralAmount,
-            address(this)
-        );
+        uint256 withdrawn =
+            aaveAdapter.aavePool().withdraw(p.collateralAsset, p.collateralAmount, address(this));
 
         // ── 4. Swap collateral → debt asset on Uniswap v3 ────────────────────
         IERC20(p.collateralAsset).forceApprove(address(swapRouter), withdrawn);
 
         uint256 amountOut = swapRouter.exactInputSingle(
             ISwapRouter.ExactInputSingleParams({
-                tokenIn:           p.collateralAsset,
-                tokenOut:          p.debtAsset,
-                fee:               p.poolFee,
-                recipient:         address(this),
-                amountIn:          withdrawn,
-                amountOutMinimum:  p.minDebtRepaid,
+                tokenIn: p.collateralAsset,
+                tokenOut: p.debtAsset,
+                fee: p.poolFee,
+                recipient: address(this),
+                amountIn: withdrawn,
+                amountOutMinimum: p.minDebtRepaid,
                 sqrtPriceLimitX96: 0
             })
         );
 
-        if (amountOut < p.minDebtRepaid)
+        if (amountOut < p.minDebtRepaid) {
             revert SlippageTooHigh(amountOut, p.minDebtRepaid);
+        }
 
         // ── 5. Repay debt via AaveAdapter ─────────────────────────────────────
         IERC20(p.debtAsset).safeTransfer(address(aaveAdapter), amountOut);
@@ -439,15 +388,12 @@ contract ProtectionActions is ReentrancyGuard, Pausable, Ownable {
      * @notice Execute partial repays for multiple users in one transaction.
      *         Any individual failure is caught and logged — does NOT revert the batch.
      */
-    function batchPartialRepay(RepayParams[] calldata params)
-        external
-        nonReentrant
-        whenNotPaused
-    {
+    function batchPartialRepay(RepayParams[] calldata params) external nonReentrant whenNotPaused {
         for (uint256 i = 0; i < params.length; i++) {
             try this.executePartialRepay(params[i]) {
-                // Success — event already emitted
-            } catch Error(string memory reason) {
+            // Success — event already emitted
+            }
+            catch Error(string memory reason) {
                 emit ProtectionFailed(params[i].user, "PARTIAL_REPAY", reason, block.timestamp);
             } catch {
                 emit ProtectionFailed(params[i].user, "PARTIAL_REPAY", "unknown", block.timestamp);
@@ -463,22 +409,16 @@ contract ProtectionActions is ReentrancyGuard, Pausable, Ownable {
      * @notice Check whether a repay action would be permitted right now.
      *         Agent calls this to avoid wasting gas on a doomed tx.
      */
-    function canExecuteRepay(
-        address user,
-        address debtAsset,
-        uint256 amount
-    )
-        external view
+    function canExecuteRepay(address user, address debtAsset, uint256 amount)
+        external
+        view
         returns (bool permitted, string memory reason)
     {
-        (
-            bool agentEnabled,, bool canRepay,,
-            , uint256 actionHF,
-            uint16 maxRepayBP,
-        ) = agentRegistry.getAgentDecisionParams(user);
+        (bool agentEnabled,, bool canRepay,,, uint256 actionHF, uint16 maxRepayBP,) =
+            agentRegistry.getAgentDecisionParams(user);
 
         if (!agentEnabled) return (false, "agent disabled");
-        if (!canRepay)     return (false, "auto-repay not enabled");
+        if (!canRepay) return (false, "auto-repay not enabled");
 
         uint256 hf = aaveAdapter.getHealthFactor(user);
         if (hf >= actionHF) return (false, "HF above action threshold");
@@ -494,12 +434,9 @@ contract ProtectionActions is ReentrancyGuard, Pausable, Ownable {
      * @notice Simulate the HF improvement from a repay action.
      *         Returns current HF and projected HF after repay.
      */
-    function simulateRepayImpact(
-        address user,
-        address debtAsset,
-        uint256 repayAmount
-    )
-        external view
+    function simulateRepayImpact(address user, address debtAsset, uint256 repayAmount)
+        external
+        view
         returns (uint256 currentHF, uint256 projectedHF)
     {
         currentHF = aaveAdapter.getHealthFactor(user);
@@ -517,13 +454,14 @@ contract ProtectionActions is ReentrancyGuard, Pausable, Ownable {
     // ─────────────────────────────────────────────────────────────────────────
 
     function _requireAuthorisedKeeper(address user) internal view {
-        if (!agentRegistry.isAuthorisedKeeper(user, msg.sender))
+        if (!agentRegistry.isAuthorisedKeeper(user, msg.sender)) {
             revert NotAuthorisedKeeper(msg.sender, user);
+        }
     }
 
     function _recordAndEmit(
         address user,
-        string  memory actionType,
+        string memory actionType,
         address asset,
         uint256 amount,
         uint256 hfBefore,
@@ -533,14 +471,7 @@ contract ProtectionActions is ReentrancyGuard, Pausable, Ownable {
         agentRegistry.recordAction(user, actionType, amount);
 
         emit ProtectionExecuted(
-            user,
-            msg.sender,
-            actionType,
-            asset,
-            amount,
-            hfBefore,
-            hfAfter,
-            block.timestamp
+            user, msg.sender, actionType, asset, amount, hfBefore, hfAfter, block.timestamp
         );
     }
 
@@ -550,15 +481,23 @@ contract ProtectionActions is ReentrancyGuard, Pausable, Ownable {
      *      Production: call dataProvider.getReserveTokensAddresses(asset).
      */
     function _getAToken(address underlying) internal pure returns (address) {
+        //  In production,  this would be used instead of hardcoded:
+        // (, address aToken,,,) = aaveDataProvider.getReserveTokensAddresses(underlying);
+        // return aToken;
+
         // Arbitrum One aToken addresses (Aave v3)
-        if (underlying == 0x82aF49447D8a07e3bd95BD0d56f35241523fBab1)
+        if (underlying == 0x82aF49447D8a07e3bd95BD0d56f35241523fBab1) {
             return 0xe50fA9b3c56FfB159cB0FCA61F5c9D750e8128c8; // aWETH
-        if (underlying == 0xaf88d065e77c8cC2239327C5EDb3A432268e5831)
+        }
+        if (underlying == 0xaf88d065e77c8cC2239327C5EDb3A432268e5831) {
             return 0x724dc807b04555b71ed48a6896b6F41593b8C637; // aUSDC
-        if (underlying == 0x2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f)
+        }
+        if (underlying == 0x2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f) {
             return 0x078f358208685046a11C85e8ad32895DED33A249; // aWBTC
-        if (underlying == 0x912CE59144191C1204E64559FE8253a0e49E6548)
+        }
+        if (underlying == 0x912CE59144191C1204E64559FE8253a0e49E6548) {
             return 0x6533afac2E7BCCB20dca161449A13A32D391fb00; // aARB
+        }
         // Fallback: return underlying itself (will revert in practice if wrong)
         return underlying;
     }

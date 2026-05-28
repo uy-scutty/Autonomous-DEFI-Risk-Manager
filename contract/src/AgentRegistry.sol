@@ -3,7 +3,7 @@ pragma solidity ^0.8.20;
 
 /**
  * @title  AgentRegistry
- * @author Autonomous DeFi Risk Manager
+ * @author Oyedokun Oluwatominyi John
  * @notice Single source of truth for every user's AI agent configuration.
  *
  *         Why a separate contract?
@@ -25,8 +25,10 @@ pragma solidity ^0.8.20;
  *         • Execution history counter (for dashboard analytics)
  */
 
-import "@openzeppelin/contracts/access/Ownable.sol";
-import "@chainlink-brownie-contracts/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
+import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
+import {
+    AggregatorV3Interface
+} from "@chainlink-brownie-contracts/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
 
 contract AgentRegistry is Ownable {
     // ─────────────────────────────────────────────────────────────────────────────

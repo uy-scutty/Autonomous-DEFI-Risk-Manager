@@ -3,7 +3,7 @@ pragma solidity ^0.8.20;
 
 /**
  * @title  AaveAdapter
- * @author Autonomous DeFi Risk Manager
+ * @author Oyedokun Oluwatominiyi John
  * @notice The bridge between this protocol and Aave v3.
  *
  *         Two responsibilities:
@@ -355,7 +355,7 @@ contract AaveAdapter is Ownable {
 
         // Get current asset price and user's balance of this asset
         uint256 currentPrice = aaveOracle.getAssetPrice(asset);
-        (uint256 aTokenBal,) = dataProvider.getUserReserveData(asset, user);
+        (uint256 aTokenBal,,,,,,,,) = dataProvider.getUserReserveData(asset, user);
 
         // Current USD value of this asset as collateral
         // Note: aToken balance has the same decimals as the underlying
@@ -374,7 +374,7 @@ contract AaveAdapter is Ownable {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // WRITE: Protection actions (only callable by ProtectionActions contract)
+    // Protection actions (only callable by ProtectionActions contract)
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
