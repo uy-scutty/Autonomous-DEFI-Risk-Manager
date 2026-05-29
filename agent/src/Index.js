@@ -26,10 +26,10 @@ require("dotenv").config();
 const cron = require("node-cron");
 const { ethers } = require("ethers");
 
-const scanner = require("./scanner");
-const riskEngine = require("./riskEngine");
+const scanner = require("./scanner_aave");
+const riskEngine = require("./riskEngine_aave");
 const decisionEngine = require("./decisionEngine");
-const executor = require("./executor");
+const executor = require("./executor_aave");
 const explainer = require("./explainer");
 const alerter = require("./alerter");
 const db = require("./db");

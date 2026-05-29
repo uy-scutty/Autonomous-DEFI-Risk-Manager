@@ -334,7 +334,7 @@ contract ProtectionActions is ReentrancyGuard, Pausable, Ownable {
 
         // ── 2. Verify deleverage size is within user's limit ─────────────────
         (uint256 aTokenBal,) = aaveAdapter.getUserCollateral(p.user, p.collateralAsset);
-        uint256 maxAllowed = (aTokenBal * maxDelgBP) / BASIS_POINTS;
+        // uint256 maxAllowed = (aTokenBal * maxDelgBP) / BASIS_POINTS;
         // Note: for MVP we check token balance; full version checks USD value
 
         // ── 3. User must have approved this contract on their aToken ─────────
@@ -342,7 +342,7 @@ contract ProtectionActions is ReentrancyGuard, Pausable, Ownable {
         //      The agent's setup flow guides users to approve their aTokens.
         //      For MVP demo: agent pre-arranges this during onboarding.
         address aToken = _getAToken(p.collateralAsset);
-        uint256 aTokenAllowance = IERC20(aToken).allowance(p.user, address(this));
+        // uint256 aTokenAllowance = IERC20(aToken).allowance(p.user, address(this));
 
         // Pull aTokens from user (Aave aTokens are ERC-20 — can be transferred)
         IERC20(aToken).safeTransferFrom(p.user, address(this), p.collateralAmount);

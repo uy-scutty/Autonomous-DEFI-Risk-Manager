@@ -113,12 +113,12 @@ contract AaveAdapter is Ownable {
     // Constants
     // ─────────────────────────────────────────────────────────────────────────────
 
-    /// @dev Aave v3 Pool on Arbitrum One
-    address constant AAVE_POOL_ARBITRUM = 0x794a61358D6845594F94dc1DB02A252b5b4814aD;
-    /// @dev Aave v3 PoolDataProvider on Arbitrum One
-    address constant AAVE_DATA_PROVIDER_ARBITRUM = 0x69FA688f1Dc47d4B5d8029D5a35FB7a548310654;
-    /// @dev Aave v3 Oracle on Arbitrum One
-    address constant AAVE_ORACLE_ARBITRUM = 0xb56c2f0B653173F1eB93B11a756EEae4e26e7E54;
+    // /// @dev Aave v3 Pool on Arbitrum One
+    // address constant AAVE_POOL_ARBITRUM = 0x794a61358D6845594F94dc1DB02A252b5b4814aD;
+    // /// @dev Aave v3 PoolDataProvider on Arbitrum One
+    // address constant AAVE_DATA_PROVIDER_ARBITRUM = 0x69FA688f1Dc47d4B5d8029D5a35FB7a548310654;
+    // /// @dev Aave v3 Oracle on Arbitrum One
+    // address constant AAVE_ORACLE_ARBITRUM = 0xb56c2f0B653173F1eB93B11a756EEae4e26e7E54;
 
     /// @dev Variable rate mode (what almost all users have)
     uint256 constant VARIABLE_RATE = 2;
@@ -146,7 +146,7 @@ contract AaveAdapter is Ownable {
      * @param _pool            Aave v3 Pool address
      * @param _dataProvider    Aave v3 PoolDataProvider address
      * @param _oracle          Aave v3 Oracle address
-     * @param _protectionActions  ProtectionActions contract (can call write fns)
+     * @param _protectionActions  ProtectionActions contract 
      */
     constructor(address _pool, address _dataProvider, address _oracle, address _protectionActions)
         Ownable(msg.sender)

@@ -12,7 +12,7 @@ pragma solidity ^0.8.20;
  *         VaultManager and RiskOracle are gone — Aave replaces them.
  *
  * Usage (Arbitrum Sepolia):
- *   forge script script/Deploy.s.sol:Deploy \
+ *   forge script script/Deploy_Aave.s.sol:Deploy\
  *     --rpc-url arbitrum_sep --broadcast --verify -vvvv
  *
  * Usage (Arbitrum One mainnet):
@@ -27,17 +27,17 @@ import { AaveAdapter } from "src/AaveAdapter.sol";
 
 contract Deploy is Script {
     // ── Aave v3 Arbitrum One addresses ────────────────────────────────────
-    address constant AAVE_POOL = 0x794a61358D6845594F94dc1DB02A252b5b4814aD;
-    address constant AAVE_DATA_PROVIDER = 0x69FA688f1Dc47d4B5d8029D5a35FB7a548310654;
-    address constant AAVE_ORACLE = 0xb56c2f0B653173F1eB93B11a756EEae4e26e7E54;
+    // address constant AAVE_POOL = 0x794a61358D6845594F94dc1DB02A252b5b4814aD;
+    // address constant AAVE_DATA_PROVIDER = 0x69FA688f1Dc47d4B5d8029D5a35FB7a548310654;
+    // address constant AAVE_ORACLE = 0xb56c2f0B653173F1eB93B11a756EEae4e26e7E54;
 
     // ── Aave v3 Arbitrum Sepolia testnet addresses ────────────────────────
-    // address constant AAVE_POOL          = 0xBfC91D59fdAA134A4ED45f7B584cAf96D7792Eff;
-    // address constant AAVE_DATA_PROVIDER = 0x501c23c48a2837B6895B5F10Ca28C2AA5EA0CdC4;
-    // address constant AAVE_ORACLE        = 0x4da4E7ef052FE5e8B4FAe429d34D3063bBBb0B3e;
+    address constant AAVE_POOL = 0xBfC91D59fdAA134A4ED45f7B584cAf96D7792Eff;
+    address constant AAVE_DATA_PROVIDER = 0x501c23C48a2837B6895b5F10cA28c2aA5ea0CDc4;
+    address constant AAVE_ORACLE = 0x4Da4E7EF052fE5e8b4fAE429D34D3063Bbbb0b3e;
 
-    // ── Uniswap v3 SwapRouter02 on Arbitrum ──────────────────────────────
-    address constant UNISWAP_ROUTER = 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45;
+    // ── Uniswap v3 SwapRouter02 on Arbitrum Sepolia ───────────────────────
+    address constant UNISWAP_ROUTER = 0x101F443B4d1b059569D643917553c771E1b9663E;
 
     function run() external {
         uint256 deployerKey = vm.envUint("PRIVATE_KEY");
