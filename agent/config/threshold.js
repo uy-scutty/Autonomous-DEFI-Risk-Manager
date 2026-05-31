@@ -48,7 +48,7 @@ module.exports = {
     confirmTimeoutMs: parseInt(process.env.CONFIRM_TIMEOUT_MS || "60000"),
   },
 
-  // Known token addresses on Arbitrum One (lowercase)
+  // Known token addresses on Arbitrum One (lowercase) -- might change later
   tokens: {
     WETH: "0x82af49447d8a07e3bd95bd0d56f35241523fbab1",
     USDC: "0xaf88d065e77c8cc2239327c5edb3a432268e5831",

@@ -1,6 +1,6 @@
 /**
  * logger.js — Structured console logger
- * Adds timestamps and log levels. Swap this for Winston/Pino in production.
+ * Adds timestamps and log levels. Would swap this for Winston/Pino in production.
  */
 
 "use strict";

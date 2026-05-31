@@ -24,8 +24,9 @@
 "use strict";
 
 const https = require("https");
-const { log, error: logError } = require("./logger");
-const db = require("./db");
+const { log, debug, warn, error } = require("src/logger");
+
+const db = require("src/db");
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Telegram API client (no library dependency — plain HTTPS)
@@ -40,9 +41,7 @@ const API_BASE = `https://api.telegram.org/bot${BOT_TOKEN}`;
  */
 async function sendTelegramMessage(chatId, text, parseMode = "HTML") {
   if (!BOT_TOKEN) {
-    log(
-      `[alerter] No Telegram token — would send to ${chatId}: ${text.slice(0, 60)}...`,
-    );
+    log(`No Telegram token — would send to ${chatId}: ${text.slice(0, 60)}...`);
     return { ok: true, simulated: true };
   }
 

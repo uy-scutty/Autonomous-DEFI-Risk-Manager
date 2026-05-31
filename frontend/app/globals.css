@@ -1,0 +1,95 @@
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --void:     #050508;
+  --surface:  #0d0d14;
+  --panel:    #13131e;
+  --border:   #1e1e2e;
+  --muted:    #2a2a3d;
+  --cyan:     #00e5ff;
+  --cyan-dim: #00b8d4;
+  --safe:     #00e676;
+  --warning:  #ffea00;
+  --action:   #ff6d00;
+  --critical: #ff1744;
+  --ink:      #e8e8f0;
+  --faint:    #6b6b8a;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  background: var(--void);
+  color: var(--ink);
+  font-family: 'DM Sans', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  min-height: 100vh;
+  background:
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(0,229,255,0.06) 0%, transparent 60%),
+    var(--void);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar       { width: 4px; }
+::-webkit-scrollbar-track { background: var(--surface); }
+::-webkit-scrollbar-thumb { background: var(--muted); border-radius: 2px; }
+
+/* RainbowKit overrides to match dark theme */
+[data-rk] {
+  --rk-colors-accentColor:           #00e5ff !important;
+  --rk-colors-accentColorForeground: #050508 !important;
+  --rk-colors-modalBackground:       #0d0d14 !important;
+  --rk-colors-modalBorder:           #1e1e2e !important;
+  --rk-colors-modalText:             #e8e8f0 !important;
+  --rk-colors-connectButtonBackground: #13131e !important;
+  --rk-colors-connectButtonText:     #e8e8f0 !important;
+}
+
+/* Utility classes */
+.font-display { font-family: 'Syne', sans-serif; }
+.font-mono    { font-family: 'JetBrains Mono', monospace; }
+
+.glass {
+  background: rgba(13,13,20,0.8);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--border);
+}
+
+.glow-cyan  { box-shadow: 0 0 24px rgba(0,229,255,0.25); }
+.glow-safe  { box-shadow: 0 0 20px rgba(0,230,118,0.3);  }
+.glow-crit  { box-shadow: 0 0 20px rgba(255,23,68,0.35); }
+
+.hf-safe     { color: var(--safe);     }
+.hf-warning  { color: var(--warning);  }
+.hf-action   { color: var(--action);   }
+.hf-critical { color: var(--critical); }
+
+/* Grid scan-line overlay effect */
+.scan-overlay {
+  position: relative;
+  overflow: hidden;
+}
+.scan-overlay::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0,229,255,0.015) 2px,
+    rgba(0,229,255,0.015) 4px
+  );
+  pointer-events: none;
+}

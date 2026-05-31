@@ -3,7 +3,7 @@ CONTRACTS
 ✅ AaveAdapter.sol
 ✅ ProtectionActions.sol
 ✅ Tests written
-⬜ Deploy to Arbitrum Sepolia ← do this today
+✅Deploy to Arbitrum Sepolia ← do this today
 ⬜ Deploy to Robinhood Chain testnet ← do this this week
 
 AGENT
@@ -17,18 +17,72 @@ AGENT
 ⬜ Express webhook server (8 lines) ← missing, needed for Telegram
 ⬜ Plug in deployed contract addresses ← needed to run agent
 
-FRONTEND
-⬜ Project scaffold (Next.js 14)
-⬜ wagmi + WalletConnect config
-⬜ contracts.ts (ABIs + addresses)
-⬜ Dashboard page + RiskMeter component
-⬜ Agent Activity feed
-⬜ Settings page (AgentRegistry writes)
-⬜ What-If simulator
-⬜ API routes (agent-log, positions, simulate)
+frontend/
+│
+├── app/
+│ ├── layout.tsx ← providers + navbar seen
+│ ├── page.tsx ← redirect to /dashboard
+│ ├── globals.css seen
+│ │
+│ ├── dashboard/   seen
+│ │ └── page.tsx ← MAIN PAGE: everything judges see first
+│ │ - Position card (collateral, debt, HF)
+│ │ - Risk meter gauge
+│ │ - Price shock slider (built in, not separate page)
+│ │ - Agent status badge
+│ │
+│ ├── activity/ seen
+│ │ └── page.tsx ← Agent action history with NL explanations
+│ │ - List of actions the agent took
+│ │ - HF before → after per action
+│ │ - Arbiscan tx links
+│ │
+│ └── settings/ seen
+│ └── page.tsx ← User controls
+│ - Warning/action threshold sliders
+│ - Auto-repay / auto-deleverage toggles
+│ - Telegram connect widget
+│
+├── components/ seen
+│ ├── Navbar.tsx ← logo + wallet connect button + nav links
+│ ├── RiskMeter.tsx ← the gauge — most important visual
+│ ├── PositionCard.tsx ← HF + collateral + debt in one card
+│ ├── AgentFeed.tsx ← scrolling action history
+│ ├── PriceSlider.tsx ← what-if slider on dashboard
+│ ├── ThresholdEditor.tsx ← settings sliders → AgentRegistry
+│ └── TelegramConnect.tsx ← connect Telegram widget
+│
+├── hooks/  seen
+│ ├── useAavePosition.ts ← reads AaveAdapter
+│ ├── useAgentConfig.ts ← reads + writes AgentRegistry
+│ ├── useAgentActivity.ts ← polls agent server /api/activity/:addr
+│ └── useAgentHealth.ts ← polls agent server /health
+│
+├── lib/   seen
+│ ├── contracts.ts ← ABIs + addresses
+│ ├── wagmiConfig.ts ← wallet setup
+│ └── formatters.ts ← formatHF(), formatUSD(), shortenAddr()
+│
+├── public/
+│ └── logo.svg
+│
+├── .env.local not seen 
+├── next.config.js not seen
+├── tailwind.config.js  seen
+├── tsconfig.json not seen
+└── package.json  seen 
 
 DOCS + SUBMISSION
 ⬜ README.md with clear problem/solution story
 ⬜ Architecture diagram (we have this)
 ⬜ Demo script (3 minutes, judges see the agent act live)
 ⬜ Demo video recording
+
+
+
+File,Affected?,How Much?,Explanation
+
+decisionEngine.js,Yes,Low,Uses the report returned by assess()
+executor_aave.js,Slightly,Low,Uses dominantCollateralToken
+explainer.js,Yes,Medium,"Uses collateral breakdown, scenarios, etc."
+alerter.js,Yes,Medium,Shows collateral info in alerts

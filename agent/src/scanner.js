@@ -1,8 +1,7 @@
 /**
  * scanner.js — Position Scanner (Aave Guardian Edition)
  * ───────────────────────────────────────────────────────
- * CHANGES FROM v1:
- *   - Reads positions from AaveAdapter.getUserPosition() instead of VaultManager
+ *   - Reads positions from AaveAdapter.getUserPosition()
  *   - User discovery: watches for Aave Supply/Borrow events instead of PositionUpdated
  *   - Position shape is now driven by Aave's getUserAccountData output
  *
@@ -24,9 +23,9 @@ const { ethers } = require("ethers");
 const { log, error: logError } = require("./logger");
 const ABIS = require("./abis");
 
-// ── Aave v3 Pool on Arbitrum (for event listening — we watch Aave directly) ──
-const AAVE_POOL_ADDRESS = process.env.AAVE_POOL_ADDRESS
-  || "0x794a61358D6845594F94dc1DB02A252b5b4814aD";
+// ── Aave v3 Pool on Arbitrum Sepolia (for event listening — we watch Aave directly) ──
+const AAVE_POOL_ADDRESS =
+  process.env.AAVE_POOL_ADDRESS || "0xBfC91D59fdAA134A4ED45f7B584cAf96D7792Eff";
 
 // Minimal Aave Pool ABI — only the events and view functions we need
 const AAVE_POOL_ABI = [
@@ -36,17 +35,21 @@ const AAVE_POOL_ABI = [
   "event LiquidationCall(address indexed collateralAsset, address indexed debtAsset, address indexed user, uint256 debtToCover, uint256 liquidatedCollateralAmount, address liquidator, bool receiveAToken)",
 ];
 
-let _adapter   = null;
-let _aavePool  = null;
-let _userSet   = new Set();
+let _adapter = null;
+let _aavePool = null;
+let _userSet = new Set();
 let _lastScannedBlock = 0;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helper (caching functions)
+// ─────────────────────────────────────────────────────────────────────────────
 
 function getAdapter(provider) {
   if (!_adapter) {
     _adapter = new ethers.Contract(
       process.env.AAVE_ADAPTER_ADDRESS,
       ABIS.AaveAdapter,
-      provider
+      provider,
     );
   }
   return _adapter;
@@ -64,16 +67,20 @@ function getAavePool(provider) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function discoverUsers(provider) {
-  const pool        = getAavePool(provider);
+  const pool = getAavePool(provider);
   const latestBlock = await provider.getBlockNumber();
-  const fromBlock   = _lastScannedBlock > 0
-    ? _lastScannedBlock + 1
-    : Math.max(0, latestBlock - parseInt(process.env.EVENT_REPLAY_BLOCKS || "100000"));
+  const fromBlock =
+    _lastScannedBlock > 0
+      ? _lastScannedBlock + 1
+      : Math.max(
+          0,
+          latestBlock - parseInt(process.env.EVENT_REPLAY_BLOCKS || "100000"),
+        );
 
   try {
     // Watch for anyone who has ever borrowed (those are the at-risk users)
     const borrowFilter = pool.filters.Borrow();
-    const events       = await pool.queryFilter(borrowFilter, fromBlock, latestBlock);
+    const events = await pool.queryFilter(borrowFilter, fromBlock, latestBlock);
 
     for (const evt of events) {
       // onBehalfOf is who actually owns the debt position
@@ -99,15 +106,15 @@ async function fetchPosition(user, provider) {
   const pos = await adapter.getUserPosition(user);
 
   return {
-    user:                    user.toLowerCase(),
-    healthFactor:            pos.healthFactor.toString(),
-    totalCollateralUSD:      pos.totalCollateralUSD.toString(),   // 8-dec
-    totalDebtUSD:            pos.totalDebtUSD.toString(),         // 8-dec
-    availableBorrowsUSD:     pos.availableBorrowsUSD.toString(),
-    liquidationThreshold:    Number(pos.currentLiquidationThreshold),
-    ltv:                     Number(pos.ltv),
-    netWorthUSD:             pos.netWorthUSD.toString(),
-    isAtRisk:                pos.isAtRisk,
+    user: user.toLowerCase(),
+    healthFactor: pos.healthFactor.toString(),
+    totalCollateralUSD: pos.totalCollateralUSD.toString(), // 8-dec
+    totalDebtUSD: pos.totalDebtUSD.toString(), // 8-dec
+    availableBorrowsUSD: pos.availableBorrowsUSD.toString(),
+    liquidationThreshold: Number(pos.currentLiquidationThreshold),
+    ltv: Number(pos.ltv),
+    netWorthUSD: pos.netWorthUSD.toString(),
+    isAtRisk: pos.isAtRisk,
   };
 }
 
@@ -125,9 +132,9 @@ async function fetchAllPositions(provider) {
   const results = [];
 
   for (let i = 0; i < users.length; i += BATCH) {
-    const batch   = users.slice(i, i + BATCH);
+    const batch = users.slice(i, i + BATCH);
     const settled = await Promise.allSettled(
-      batch.map((user) => fetchPosition(user, provider))
+      batch.map((user) => fetchPosition(user, provider)),
     );
 
     for (const result of settled) {
@@ -152,7 +159,7 @@ async function fetchAllPositions(provider) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function startEventListeners(provider, onEvent) {
-  const pool    = getAavePool(provider);
+  const pool = getAavePool(provider);
   const adapter = getAdapter(provider);
 
   // Watch Aave Borrow → new user or increased risk
@@ -176,7 +183,9 @@ async function startEventListeners(provider, onEvent) {
 
   // Watch for LiquidationCall — if this fires, we failed to protect in time
   pool.on("LiquidationCall", (collateralAsset, debtAsset, user) => {
-    logError(`[event:LiquidationCall] LIQUIDATION OCCURRED for ${user} — agent failed to protect`);
+    logError(
+      `[event:LiquidationCall] LIQUIDATION OCCURRED for ${user} — agent failed to protect`,
+    );
     onEvent({ type: "LiquidationCall", user });
   });
 
@@ -184,7 +193,7 @@ async function startEventListeners(provider, onEvent) {
   const protection = new ethers.Contract(
     process.env.PROTECTION_ACTIONS_ADDRESS,
     ABIS.ProtectionActions,
-    provider
+    provider,
   );
 
   protection.on("ProtectionExecuted", (user, keeper, actionType) => {
@@ -192,7 +201,9 @@ async function startEventListeners(provider, onEvent) {
     onEvent({ type: "ProtectionExecuted", user, actionType });
   });
 
-  log("Event listeners active: Aave Borrow/Supply/Repay/Liquidation + ProtectionActions");
+  log(
+    "Event listeners active: Aave Borrow/Supply/Repay/Liquidation + ProtectionActions",
+  );
 }
 
 module.exports = {
