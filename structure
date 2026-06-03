@@ -1,88 +1,114 @@
-CONTRACTS
-✅ AgentRegistry.sol
-✅ AaveAdapter.sol
-✅ ProtectionActions.sol
-✅ Tests written
-✅Deploy to Arbitrum Sepolia ← do this today
-⬜ Deploy to Robinhood Chain testnet ← do this this week
+**PROJECT: Autonomous DeFi Risk Manager — Frontend Only**
 
-AGENT
-✅ scanner.js
-✅ riskEngine.js
-✅ decisionEngine.js
-✅ executor.js
-✅ explainer.js
-✅ alerter.js
-✅ db.js
-⬜ Express webhook server (8 lines) ← missing, needed for Telegram
-⬜ Plug in deployed contract addresses ← needed to run agent
+Build a professional, high-end Next.js 14 (App Router) dashboard for an AI-powered Aave V3 position guardian agent running on Arbitrum.
+
+### TECH STACK
+
+- Next.js 14 App Router + TypeScript
+- TailwindCSS + Framer Motion
+- wagmi v2 + viem + RainbowKit v2
+- @tanstack/react-query v5
+- Recharts + HTML5 Canvas (for RiskMeter)
+- Dark theme only
+
+### DESIGN SYSTEM (Very Important)
+
+- Pure dark cyberpunk trading terminal aesthetic
+- Background: #050508
+- Cards/Surfaces: #13131e with 1px solid border #1e1e2e
+- Primary accent: #00e5ff (electric cyan) with subtle glow (`0 0 15px`)
+- Risk Colors:
+  - SAFE: #00e676
+  - WARNING: #ffea00
+  - ACTION: #ff6d00
+  - CRITICAL: #ff1744
+- Fonts: Syne (headings), DM Sans (body), JetBrains Mono (numbers)
+- All text: #e8e8f0 (primary), #6b6b8a (muted)
+
+### FOLDER STRUCTURE
 
 frontend/
-│
 ├── app/
-│ ├── layout.tsx ← providers + navbar seen
-│ ├── page.tsx ← redirect to /dashboard
-│ ├── globals.css seen
-│ │
-│ ├── dashboard/   seen
-│ │ └── page.tsx ← MAIN PAGE: everything judges see first
-│ │ - Position card (collateral, debt, HF)
-│ │ - Risk meter gauge
-│ │ - Price shock slider (built in, not separate page)
-│ │ - Agent status badge
-│ │
-│ ├── activity/ seen
-│ │ └── page.tsx ← Agent action history with NL explanations
-│ │ - List of actions the agent took
-│ │ - HF before → after per action
-│ │ - Arbiscan tx links
-│ │
-│ └── settings/ seen
-│ └── page.tsx ← User controls
-│ - Warning/action threshold sliders
-│ - Auto-repay / auto-deleverage toggles
-│ - Telegram connect widget
-│
-├── components/ seen
-│ ├── Navbar.tsx ← logo + wallet connect button + nav links
-│ ├── RiskMeter.tsx ← the gauge — most important visual
-│ ├── PositionCard.tsx ← HF + collateral + debt in one card
-│ ├── AgentFeed.tsx ← scrolling action history
-│ ├── PriceSlider.tsx ← what-if slider on dashboard
-│ ├── ThresholdEditor.tsx ← settings sliders → AgentRegistry
-│ └── TelegramConnect.tsx ← connect Telegram widget
-│
-├── hooks/  seen
-│ ├── useAavePosition.ts ← reads AaveAdapter
-│ ├── useAgentConfig.ts ← reads + writes AgentRegistry
-│ ├── useAgentActivity.ts ← polls agent server /api/activity/:addr
-│ └── useAgentHealth.ts ← polls agent server /health
-│
-├── lib/   seen
-│ ├── contracts.ts ← ABIs + addresses
-│ ├── wagmiConfig.ts ← wallet setup
-│ └── formatters.ts ← formatHF(), formatUSD(), shortenAddr()
-│
-├── public/
-│ └── logo.svg
-│
-├── .env.local not seen 
-├── next.config.js not seen
-├── tailwind.config.js  seen
-├── tsconfig.json not seen
-└── package.json  seen 
+│ ├── layout.tsx
+│ ├── page.tsx
+│ ├── globals.css
+│ ├── dashboard/page.tsx
+│ ├── activity/page.tsx
+│ └── settings/page.tsx
+├── components/
+│ ├── ui/ (Navbar, Button, Card, etc.)
+│ ├── RiskMeter.tsx
+│ ├── PositionCard.tsx
+│ ├── AgentStatusBadge.tsx
+│ ├── PriceShockSimulator.tsx
+│ ├── ActionFeed.tsx
+│ ├── ThresholdEditor.tsx
+│ └── TelegramConnect.tsx
+├── hooks/
+│ ├── useAavePosition.ts
+│ ├── useAgentConfig.ts
+│ ├── useAgentActivity.ts
+│ └── useAgentHealth.ts
+├── lib/
+│ ├── contracts.ts
+│ ├── wagmiConfig.ts
+│ └── formatters.ts
+├── .env.local
+├── next.config.js
+├── tailwind.config.js
+└── tsconfig.json
 
-DOCS + SUBMISSION
-⬜ README.md with clear problem/solution story
-⬜ Architecture diagram (we have this)
-⬜ Demo script (3 minutes, judges see the agent act live)
-⬜ Demo video recording
+### CONTRACT INTERFACES
 
+Use wagmi v2. Connect to:
 
+- `AAVE_ADAPTER_ADDRESS`
+- `AGENT_REGISTRY_ADDRESS`
 
-File,Affected?,How Much?,Explanation
+Key functions are already documented in previous context.
 
-decisionEngine.js,Yes,Low,Uses the report returned by assess()
-executor_aave.js,Slightly,Low,Uses dominantCollateralToken
-explainer.js,Yes,Medium,"Uses collateral breakdown, scenarios, etc."
-alerter.js,Yes,Medium,Shows collateral info in alerts
+### AGENT SERVER API (Port 3001)
+
+- `GET /health`
+- `GET /api/activity/:address`
+- `GET /api/hf-history/:address?hours=24`
+
+### PAGE REQUIREMENTS
+
+**1. Dashboard (Main Page)**
+
+- Responsive 2×2 grid on desktop, stacked on mobile
+- Top Left: **RiskMeter** (Canvas-based semicircular gauge with animated needle + glow)
+- Top Right: **PositionCard** (Collateral, Debt, LTV bar, Net Worth)
+- Bottom Left: **PriceShockSimulator** (Slider -50% to +50%, live simulation using `simulateHFAfterPriceShock`)
+- Bottom Right: **AgentStatusBadge** (polls `/health`)
+
+**2. /activity**
+
+- Clean feed of all agent actions with rich cards
+
+**3. /settings**
+
+- Full configuration UI synced with `AgentRegistry`
+
+### COMPONENT SPECIFICS
+
+- **RiskMeter**: Pure Canvas 2D, animated needle, clear tick marks at 1.0, 1.4, 1.6, 2.0, 3.0, glow effect based on risk band.
+- All cards must have beautiful loading skeletons.
+- Strong empty states when no position or no activity.
+- Fully responsive (mobile friendly).
+
+**HOOKS** should be clean, well-typed, with proper error handling and refetch intervals.
+
+**IMPORTANT RULES**
+
+- Never crash if agent server is offline
+- Handle Health Factor = max uint256 as "∞"
+- Smooth wallet connection flow with RainbowKit
+- All transactions must show proper states (loading, success, error)
+- Use optimistic updates where appropriate
+
+**DELIVERABLES**
+Build the full project with proper folder structure, responsive design, beautiful UI, and clean code. Prioritize polish and user experience.
+
+Start building now.

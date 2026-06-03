@@ -1,40 +1,32 @@
 /**
- * index.js — Autonomous DeFi Risk Manager Agent
- * ───────────────────────────────────────────────
- * PATCHES APPLIED vs original:
- *   1. REQUIRED_ENV updated — removed VAULT_MANAGER/RISK_ORACLE, added AAVE_ADAPTER
- *   2. server.js imported and started after DB init
- *   3. Event listener wrapped in try/catch so a bad RPC on boot doesn't
- *      kill the listener silently
- *   4. agentState.totalScans + activePositions updated for /health endpoint
+ * index.js — Main Entry Point for Aave Guardian Agent
  */
 
 "use strict";
 
 require("dotenv").config();
 
-const cron       = require("node-cron");
+const cron = require("node-cron");
 const { ethers } = require("ethers");
 
-const scanner        = require("./scanner");
-const riskEngine     = require("./riskEngine");
+const scanner = require("./scanner");
+const riskEngine = require("./riskEngine");
 const decisionEngine = require("./decisionEngine");
-const executor       = require("./executor");
-const explainer      = require("./explainer");
-const alerter        = require("./alerter");
-const db             = require("./db");
-const server         = require("./server");           // ← PATCH 2: added
+const executor = require("./executor");
+const explainer = require("./explainer");
+const alerter = require("./alerter");
+const db = require("./db");
 const { log, error: logError } = require("./logger");
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PATCH 1: Updated REQUIRED_ENV — Aave addresses replace VaultManager/RiskOracle
+// Required Environment Variables
 // ─────────────────────────────────────────────────────────────────────────────
 
 const REQUIRED_ENV = [
   "ARBITRUM_RPC_URL",
   "AGENT_PRIVATE_KEY",
-  "AAVE_ADAPTER_ADDRESS",           // ← was VAULT_MANAGER_ADDRESS
-  "AAVE_POOL_ADDRESS",              // ← was RISK_ORACLE_ADDRESS
+  "AAVE_ADAPTER_ADDRESS",
+  "AAVE_POOL_ADDRESS",
   "AGENT_REGISTRY_ADDRESS",
   "PROTECTION_ACTIONS_ADDRESS",
 ];
@@ -47,17 +39,16 @@ for (const key of REQUIRED_ENV) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Shared provider + signer
+// Blockchain Connection
 // ─────────────────────────────────────────────────────────────────────────────
 
 const provider = new ethers.JsonRpcProvider(process.env.ARBITRUM_RPC_URL);
-const signer   = new ethers.Wallet(process.env.AGENT_PRIVATE_KEY, provider);
+const signer = new ethers.Wallet(process.env.AGENT_PRIVATE_KEY, provider);
 
-const SCAN_CRON          = process.env.SCAN_CRON          || "*/30 * * * * *";
-const EVENT_REPLAY_BLOCKS = parseInt(process.env.EVENT_REPLAY_BLOCKS || "1000");
+const SCAN_CRON = process.env.SCAN_CRON || "*/30 * * * * *";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Core scan cycle
+// Core Scan Cycle
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function runScanCycle() {
@@ -73,17 +64,9 @@ async function runScanCycle() {
   }
 
   if (!positions || positions.length === 0) {
-    log(`[cycle:${cycleId}] No active positions found`);
+    log(`[cycle:${cycleId}] No active borrowing positions found`);
     return;
   }
-
-  // PATCH 4: update server health state
-  server.updateState({
-    status:          "running",
-    lastScanAt:      Date.now(),
-    activePositions: positions.length,
-    totalScans:      (server.agentState?.totalScans || 0) + 1,
-  });
 
   log(`[cycle:${cycleId}] Processing ${positions.length} position(s)`);
 
@@ -92,7 +75,7 @@ async function runScanCycle() {
 
   for (const chunk of chunks) {
     await Promise.allSettled(
-      chunk.map((position) => processPosition(position, cycleId))
+      chunk.map((position) => processPosition(position, cycleId)),
     );
   }
 
@@ -100,7 +83,7 @@ async function runScanCycle() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Per-user processing pipeline
+// Per Position Processing Pipeline
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function processPosition(position, cycleId) {
@@ -108,31 +91,28 @@ async function processPosition(position, cycleId) {
 
   try {
     const riskReport = await riskEngine.assess(position, provider);
-    const decision   = await decisionEngine.evaluate(riskReport, provider);
+    const decision = await decisionEngine.evaluate(riskReport, provider);
 
-    // PATCH 2 (from decisionEngine fix): attach riskReport to decision
-    // so executor.js can read debtBreakdown for deleverage token selection
+    // Attach riskReport so executor can use debt/collateral data
     decision.riskReport = riskReport;
 
     await db.recordScan({
       user,
       cycleId,
-      healthFactor:   riskReport.healthFactor,
-      band:           riskReport.band,
-      projectedHF5:   riskReport.scenarios["-5%"],
-      projectedHF10:  riskReport.scenarios["-10%"],
-      projectedHF20:  riskReport.scenarios["-20%"],
-      volatilityBP:   riskReport.volatilityBP,
-      decision:       decision.action,
+      healthFactor: riskReport.healthFactor,
+      band: riskReport.band,
+      projectedHF5: riskReport.scenarios["-5%"],
+      projectedHF10: riskReport.scenarios["-10%"],
+      projectedHF20: riskReport.scenarios["-20%"],
+      volatilityBP: riskReport.volatilityBP,
+      decision: decision.action,
     });
 
     if (decision.action === "NONE") return;
 
     const explanation = await explainer.generate(riskReport, decision);
 
-    if (decision.action !== "NONE") {
-      await alerter.send(user, riskReport, decision, explanation);
-    }
+    await alerter.send(user, riskReport, decision, explanation);
 
     if (decision.shouldExecute) {
       const txResult = await executor.execute(decision, signer, provider);
@@ -140,20 +120,25 @@ async function processPosition(position, cycleId) {
       await db.recordAction({
         user,
         cycleId,
-        actionType:   decision.action,
-        token:        decision.token,
-        amount:       decision.amount?.toString(),
-        txHash:       txResult.hash,
-        hfBefore:     riskReport.healthFactor,
-        hfAfter:      txResult.hfAfter,
+        actionType: decision.action,
+        token: decision.token,
+        amount: decision.amount?.toString(),
+        txHash: txResult.hash,
+        hfBefore: riskReport.healthFactor,
+        hfAfter: txResult.hfAfter,
         explanation,
-        success:      txResult.success,
+        success: txResult.success,
         errorMessage: txResult.error,
       });
 
       if (txResult.success) {
         log(`[${user}] ✅ ${decision.action} executed — tx: ${txResult.hash}`);
-        await alerter.sendActionConfirmation(user, decision, txResult, explanation);
+        await alerter.sendActionConfirmation(
+          user,
+          decision,
+          txResult,
+          explanation,
+        );
       } else {
         logError(`[${user}] ❌ Execution failed: ${txResult.error}`);
         await alerter.sendActionFailed(user, decision, txResult.error);
@@ -166,86 +151,58 @@ async function processPosition(position, cycleId) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PATCH 3: Event listeners wrapped in try/catch per event
+// Real-time Event Listeners
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function startEventListeners() {
   log("Starting real-time event listeners...");
 
   await scanner.startEventListeners(provider, async (event) => {
-    log(`[event] ${event.type} for ${event.user} — triggering immediate scan`);
+    log(`[event] ${event.type} for ${event.user} — triggering scan`);
 
-    // PATCH 3: guard each event-triggered scan independently
     try {
       const position = await scanner.fetchPosition(event.user, provider);
-
-      // Skip if position has no debt (Supply event on non-borrowing user)
-      if (position.totalDebtUSD === "0") return;
+      if (position.totalDebtUSD === "0") return; // Skip if no debt
 
       await processPosition(position, `evt-${Date.now()}`);
     } catch (err) {
       logError(`[event] Failed to process ${event.user}: ${err.message}`);
-      // Do NOT rethrow — one bad event must not kill the listener
     }
   });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Startup sequence
+// Startup
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function main() {
   log("═══════════════════════════════════════════════");
-  log("  Autonomous DeFi Risk Manager Agent v1.0.0");
-  log("  Mode: Aave Guardian");
+  log("  Autonomous DeFi Risk Manager Agent");
+  log("  Aave Guardian Mode");
   log("═══════════════════════════════════════════════");
 
-  // 1. Init database
   await db.init();
-  log("✅ Database initialised");
+  log("✅ Database initialized");
 
-  // 2. PATCH 2: Start HTTP server (Telegram webhook + health + API)
-  server.start();
-
-  // 3. Verify RPC connection
   const network = await provider.getNetwork();
-  log(`✅ Connected to: ${network.name} (chainId: ${network.chainId})`);
+  log(`✅ Connected to ${network.name} (Chain ID: ${network.chainId})`);
 
-  if (network.chainId !== 42161n && network.chainId !== 421614n) {
-    logError(`⚠️  Not on Arbitrum — chainId=${network.chainId}`);
-  }
-
-  // 4. Verify keeper wallet
   const keeperAddress = await signer.getAddress();
-  const keeperBalance = await provider.getBalance(keeperAddress);
-  log(`✅ Keeper wallet: ${keeperAddress}`);
-  log(`   ETH balance:   ${ethers.formatEther(keeperBalance)} ETH`);
+  const balance = await provider.getBalance(keeperAddress);
+  log(`✅ Agent wallet: ${keeperAddress}`);
+  log(`   Balance: ${ethers.formatEther(balance)} ETH`);
 
-  if (keeperBalance < ethers.parseEther("0.01")) {
-    logError("⚠️  Low keeper ETH balance — top up before going live");
-  }
-
-  // 5. Start event listeners
   await startEventListeners();
-  log("✅ Event listeners active");
+  log("✅ Event listeners started");
 
-  // 6. Boot scan
-  server.updateState({ status: "running" });
-  log("Running boot-time scan...");
+  log("Running initial scan...");
   await runScanCycle();
 
-  // 7. Schedule recurring scans
-  cron.schedule(SCAN_CRON, async () => {
-    await runScanCycle();
-  });
+  cron.schedule(SCAN_CRON, runScanCycle);
+  log(`✅ Cron scan scheduled (${SCAN_CRON})`);
 
-  log(`✅ Cron scheduled: ${SCAN_CRON}`);
-  log("Agent is running. Press Ctrl+C to stop.");
+  log("🚀 Agent is running!");
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────────────────────────────────────
 
 function chunkArray(arr, size) {
   const chunks = [];
@@ -255,18 +212,18 @@ function chunkArray(arr, size) {
   return chunks;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Graceful shutdown
-// ─────────────────────────────────────────────────────────────────────────────
-
-process.on("SIGINT",  () => { log("Shutting down..."); process.exit(0); });
-process.on("SIGTERM", () => { log("Shutting down..."); process.exit(0); });
-process.on("unhandledRejection", (reason) => {
-  logError(`Unhandled rejection: ${reason}`);
+process.on("SIGINT", () => {
+  log("Shutting down...");
+  process.exit(0);
+});
+process.on("SIGTERM", () => {
+  log("Shutting down...");
+  process.exit(0);
 });
 
 main().catch((err) => {
-  logError(`Fatal: ${err.message}`);
+  logError(`Fatal startup error: ${err.message}`);
   console.error(err);
   process.exit(1);
 });

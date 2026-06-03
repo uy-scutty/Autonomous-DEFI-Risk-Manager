@@ -1,0 +1,19 @@
+// frontend/next.config.js
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  images: {
+    domains: ["assets.coingecko.com"],
+  },
+  env: {
+    NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID:
+      process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID,
+    NEXT_PUBLIC_AGENT_SERVER_URL:
+      process.env.NEXT_PUBLIC_AGENT_SERVER_URL || "http://localhost:3001",
+    NEXT_PUBLIC_AAVE_ADAPTER_ADDRESS:
+      process.env.NEXT_PUBLIC_AAVE_ADAPTER_ADDRESS,
+    NEXT_PUBLIC_AGENT_REGISTRY_ADDRESS:
+      process.env.NEXT_PUBLIC_AGENT_REGISTRY_ADDRESS,
+  },
+};
+
+module.exports = nextConfig;
